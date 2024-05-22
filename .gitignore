@@ -1,5 +1,7 @@
 
+.vscode
 build
+.vsls.json
 
 # nob
 nob
