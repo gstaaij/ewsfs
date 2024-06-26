@@ -49,7 +49,7 @@ static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset,
     (void) fi;
     if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
         size_t bytecount = 0;
-        for (size_t i = 0; i < size && i < ewsfs_filecontents.count && ewsfs_filecontents.items[i] != '\0'; ++i) {
+        for (size_t i = 0; i < size && i < ewsfs_filecontents.count; ++i) {
             buffer[i] = ewsfs_filecontents.items[i];
             bytecount++;
         }
