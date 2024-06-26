@@ -4,9 +4,11 @@
 #include <unistd.h>
 #include <string.h>
 
+#define NOB_IMPLEMENTATION
+#include "nob.h"
+
 #define HELLOWORLD_FILE "ewsfs.txt"
-#define HELLOWORLD_COUNT 128
-static char ewsfs_filecontents[HELLOWORLD_COUNT];
+static Nob_String_Builder ewsfs_filecontents = {0};
 
 // Example from https://wiki.osdev.org/FUSE
 
@@ -20,9 +22,7 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         // It's the `ewsfs.txt` file
         st->st_mode = S_IFREG | 0644;
         st->st_nlink = 2;
-        st->st_size = strlen(ewsfs_filecontents);
-        if (st->st_size > HELLOWORLD_COUNT)
-            st->st_size = HELLOWORLD_COUNT;
+        st->st_size = ewsfs_filecontents.count;
     } else {
         st->st_mode = S_IFREG | 0644;
         st->st_nlink = 2;
@@ -49,8 +49,8 @@ static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset,
     (void) fi;
     if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
         size_t bytecount = 0;
-        for (size_t i = 0; i < size && i < HELLOWORLD_COUNT && ewsfs_filecontents[i] != '\0'; ++i) {
-            buffer[i] = ewsfs_filecontents[i];
+        for (size_t i = 0; i < size && i < ewsfs_filecontents.count && ewsfs_filecontents.items[i] != '\0'; ++i) {
+            buffer[i] = ewsfs_filecontents.items[i];
             bytecount++;
         }
         return bytecount;
@@ -66,25 +66,31 @@ static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
     return -1;
 }
 
-static int ewsfs_truncate(const char* path, off_t offset) {
-    (void) offset;
+static int ewsfs_truncate(const char* path, off_t length) {
     if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
+        long sizediff = length - ewsfs_filecontents.count;
+        for (long i = 0; i < sizediff; ++i) {
+            nob_da_append(&ewsfs_filecontents, '\0');
+        }
+        ewsfs_filecontents.count = length;
         return 0;
     }
     return -1;
 }
 
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    (void) offset;
     (void) fi;
     if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
         size_t bytecount = 0;
-        for (size_t i = 0; i < size && i < HELLOWORLD_COUNT; ++i) {
-            ewsfs_filecontents[i] = buffer[i];
+        for (size_t i = offset; i < size; ++i) {
+            if (i < ewsfs_filecontents.count)
+                ewsfs_filecontents.items[i] = buffer[i];
+            else
+                nob_da_append(&ewsfs_filecontents, buffer[i]);
             bytecount++;
         }
-        // For now, we return size, so text larger than 128 bytes gets properly truncated and doesn't overwrite itself
-        return size;
+        ewsfs_filecontents.count = bytecount;
+        return bytecount;
     }
     return -1;
 }
@@ -102,6 +108,8 @@ char* devfile = NULL;
 
 int main(int argc, char** argv) {
     int i;
+
+    nob_sb_append_cstr(&ewsfs_filecontents, "Hello, World!");
 
     // Get the device or image filename from arguments
     for (i = 1; i < argc && argv[i][0] == '-'; ++i);
