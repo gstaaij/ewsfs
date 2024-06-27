@@ -2,7 +2,7 @@
   // FACT — The File Allocation Christmas Tree
   "filesystem_info": {
     // General filesystem information goes here
-    "block_size": 4194304
+    "block_size": 4096
     // And more stuff
   },
 
@@ -17,6 +17,7 @@
           "contents": {
             "file": {
               "is_dir": false,
+              "file_size": 11583669,
               "attributes": {
                 // NOTE: Attributes are for directories, too
                 "date_created": 1719480000,
@@ -24,7 +25,7 @@
                 "date_accessed": 1719480000
                 // More attributes in the future...
               },
-              "memory_locations": [
+              "allocation": [
                 // The locations of the fragmented file goes here
                 {
                   "from": 4,
@@ -42,3 +43,4 @@
     }
   }
 }
+Ey�����
