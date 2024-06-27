@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     nob_cmd_append(&cmd, "-o", "build/ewsfs_fuse");
     nob_cmd_append(&cmd, "src/fuse.c");
     nob_cmd_append(&cmd, "-lfuse");
-    nob_cmd_run_sync(cmd);
+    if (!nob_cmd_run_sync(cmd)) return 1;
 
     return 0;
 }
