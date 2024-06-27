@@ -2,6 +2,8 @@
   // FACT — The File Allocation Christmas Tree
   "filesystem_info": {
     // General filesystem information goes here
+    "block_size": 4194304
+    // And more stuff
   },
 
   // This is the root directory, the attributes for it should be here
@@ -25,12 +27,12 @@
               "memory_locations": [
                 // The locations of the fragmented file goes here
                 {
-                  "from": 0xdeadbeef,
-                  "length": 0xbeef
+                  "from": 4,
+                  "length": 3
                 },
                 {
-                  "from": <address>,
-                  "length": <length>
+                  "from": <block index>,
+                  "length": <length in blocks>
                 }
               ]
             }
