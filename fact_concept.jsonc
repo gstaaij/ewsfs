@@ -1,0 +1,42 @@
+{
+  // FACT — The File Allocation Christmas Tree
+  "filesystem_info": {
+    // General filesystem information goes here
+  },
+
+  // This is the root directory, the attributes for it should be here
+
+  "contents": {
+    "path": {
+      "is_dir": true,
+      "contents": {
+        "to": {
+          "is_dir": true,
+          "contents": {
+            "file": {
+              "is_dir": false,
+              "attributes": {
+                // NOTE: Attributes are for directories, too
+                "date_created": 1719480000,
+                "date_modified": 1719480000,
+                "date_accessed": 1719480000
+                // More attributes in the future...
+              },
+              "memory_locations": [
+                // The locations of the fragmented file goes here
+                {
+                  "from": 0xdeadbeef,
+                  "length": 0xbeef
+                },
+                {
+                  "from": <address>,
+                  "length": <length>
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
