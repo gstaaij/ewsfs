@@ -1,5 +1,5 @@
 {
-  // FACT — The File Allocation Christmas Tree
+  // FACT — Fragmented Allocation Christmas Tree
   "filesystem_info": {
     // General filesystem information goes here
     "block_size": 4096
