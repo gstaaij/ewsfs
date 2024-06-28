@@ -8,14 +8,17 @@
 
   // This is the root directory, the attributes for it should be here
 
-  "contents": {
-    "path": {
+  "contents": [
+    {
+      "name": "path",
       "is_dir": true,
-      "contents": {
-        "to": {
+      "contents": [
+        {
+          "name": "to",
           "is_dir": true,
-          "contents": {
-            "file": {
+          "contents": [
+            {
+              "name": "file",
               "is_dir": false,
               "file_size": 11583669,
               "attributes": {
@@ -37,10 +40,10 @@
                 }
               ]
             }
-          }
+          ]
         }
-      }
+      ]
     }
-  }
+  ]
 }
 Ey�����
