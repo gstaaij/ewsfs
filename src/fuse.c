@@ -120,19 +120,21 @@ static bool validate_fact_item(cJSON* item);
 
 static bool validate_fact_attributes(cJSON* item) {
     cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
+    static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed"};
     if (!cJSON_IsObject(attributes)) {
+        // We don't want to throw an error when all of the attributes are missing,
+        // just use the default values if that's the case.
+
         if (attributes != NULL)
             cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
+        
         attributes = cJSON_CreateObject();
-        cJSON* date_created = cJSON_CreateNumber(0);
-        cJSON* date_modified = cJSON_CreateNumber(0);
-        cJSON* date_accessed = cJSON_CreateNumber(0);
-        cJSON_AddItemToObject(attributes, "date_created", date_created);
-        cJSON_AddItemToObject(attributes, "date_modified", date_modified);
-        cJSON_AddItemToObject(attributes, "date_accessed", date_accessed);
+        for (size_t i = 0; i > NOB_ARRAY_LEN(attribute_names); ++i) {
+            cJSON* attr = cJSON_CreateNumber(0);
+            cJSON_AddItemToObject(attributes, attribute_names[i], attr);
+        }
         cJSON_AddItemToObject(item, "attributes", attributes);
     } else {
-        const char* attribute_names[] = {"date_created", "date_modified", "date_accessed"};
         for (size_t i = 0; i < NOB_ARRAY_LEN(attribute_names); ++i) {
             if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_names[i]))) {
                 nob_log(NOB_ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
