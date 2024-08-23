@@ -1,9 +1,8 @@
+4096 // This is the block size, it needs to be here so we know how to read the FACT
 {
   // FACT — Fragmented Allocation Christmas Tree
   "filesystem_info": {
     // General filesystem information goes here
-    "block_size": 4096
-    // And more stuff
   },
 
   // This is the root directory, the attributes for it should be here

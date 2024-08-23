@@ -1,9 +1,10 @@
 #define FUSE_USE_VERSION 29
 #include <fuse.h>
-#include <stdlib.h>
 #include <stdbool.h>
-#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include "lib/cJSON.h"
 
 #define NOB_IMPLEMENTATION
@@ -15,6 +16,7 @@ static Nob_String_Builder ewsfs_filecontents = {0};
 #define DEBUG
 
 char* devfile = NULL;
+FILE* fsfile = NULL;
 
 cJSON* root;
 
@@ -206,6 +208,22 @@ int main(int argc, char** argv) {
         memcpy(&argv[i], &argv[i+1], (argc-i)*sizeof(argv[0]));
         argc--;
     }
+
+    fsfile = fopen(devfile, "rb+");
+    if (fsfile == NULL) {
+        nob_log(NOB_ERROR, "Couldn't open input file %s", devfile);
+        return 4;
+    }
+    printf("%s", devfile);
+    fseek(fsfile, 16, SEEK_SET);
+    for (int i = 0; i < 128; i++) {
+        fputs("test", fsfile);
+    }
+    
+    fclose(fsfile);
+
+    return 0;
+
     Nob_String_Builder fact = {0};
     if (!nob_read_entire_file("build/fact.json", &fact))
         return 1;

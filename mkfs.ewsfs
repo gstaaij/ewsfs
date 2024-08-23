@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+import sys
+import math
+
+def main(argv) -> int:
+    program: str = argv.pop(0)
+    if len(argv) < 2:
+        print("ERROR: No file specified and/or FS size specified")
+        return 1
+    
+    filename = argv.pop(0)
+    try:
+        fs_size = math.ceil(int(argv.pop(0)) / 4096) * 4096
+    except ValueError:
+        print("ERROR: Second argument should be FS size.")
+    
+    with open(filename, "wb") as f:
+        # Write the block size at the very beginning (64-bit)
+        f.write(b"\x00\x00\x00\x00\x00\x00\x10\x00")
+        f.write(b'{"filesystem_info":{"size":'+str(fs_size).encode()+b'},"contents":[]}')
+        f.write(bytes(fs_size - f.tell()))
+
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main(sys.argv))
