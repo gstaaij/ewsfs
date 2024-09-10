@@ -7,7 +7,7 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/gstaaij/ewsfs)
 ![GitHub last commit](https://img.shields.io/github/last-commit/gstaaij/ewsfs)
 
-the **E**xtremely **W**ise to u**S**e **FS** (working title)
+The **E**fficient, **W**orking and **S**afe **F**ile **S**ystem
 
 ## Building
 
