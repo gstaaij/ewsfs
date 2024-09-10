@@ -3,6 +3,7 @@
 
 static char* c_files[] = {
     "src/fuse.c",
+    "src/block.c",
 
     "src/lib/cJSON.c",
 };

@@ -10,7 +10,7 @@ def main(argv) -> int:
     
     filename = argv.pop(0)
     try:
-        fs_size = math.ceil(int(argv.pop(0)) / 4096) * 4096
+        fs_size = math.ceil(int(argv.pop(0)) / 4096) * 4096 + 8
     except ValueError:
         print("ERROR: Second argument should be FS size.")
     

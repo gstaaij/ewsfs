@@ -1,11 +1,13 @@
 #define FUSE_USE_VERSION 29
 #include <fuse.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "lib/cJSON.h"
+#include "block.h"
 
 #define NOB_IMPLEMENTATION
 #include "nob.h"
@@ -214,12 +216,13 @@ int main(int argc, char** argv) {
         nob_log(NOB_ERROR, "Couldn't open input file %s", devfile);
         return 4;
     }
-    printf("%s", devfile);
-    fseek(fsfile, 16, SEEK_SET);
-    for (int i = 0; i < 128; i++) {
-        fputs("test", fsfile);
-    }
     
+    ewsfs_block_read_size(fsfile);
+    uint8_t buffer[EWSFS_BLOCK_SIZE];
+    if (!ewsfs_block_read(fsfile, 0, buffer)) return 69;
+    buffer[69] = ':';
+    buffer[70] = ')';
+    if (!ewsfs_block_write(fsfile, 0, buffer)) return 70;
     fclose(fsfile);
 
     return 0;
