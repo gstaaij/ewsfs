@@ -1,5 +1,4 @@
 #include "block.h"
-#include <assert.h>
 
 #define BLOCK_SIZE_RESERVED_BYTES 8
 
