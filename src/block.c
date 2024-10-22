@@ -9,7 +9,7 @@ void ewsfs_block_read_size(FILE* file) {
         ewsfs_block_size |= getc(file) << i*8;
     }
 }
-void ewsfs_block_set_size(uint64_t block_size) {    
+void ewsfs_block_set_size(uint64_t block_size) {
     ewsfs_block_size = block_size;
 }
 uint64_t ewsfs_block_get_size() {
