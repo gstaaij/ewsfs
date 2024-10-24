@@ -1,5 +1,6 @@
 
 # EWSFS
+![Amount of Badges](https://img.shields.io/badge/badges-too_many-blue)
 ![GitHub License](https://img.shields.io/github/license/gstaaij/ewsfs)
 ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/gstaaij/ewsfs)
 ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues-pr/gstaaij/ewsfs)
