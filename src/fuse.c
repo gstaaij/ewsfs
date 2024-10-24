@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "lib/cJSON.h"
 #include "block.h"
+#include "fact.h"
 
 #define NOB_IMPLEMENTATION
 #include "nob.h"
@@ -216,15 +217,16 @@ int main(int argc, char** argv) {
         nob_log(NOB_ERROR, "Couldn't open input file %s", devfile);
         return 4;
     }
-    
-    ewsfs_block_read_size(fsfile);
-    uint8_t buffer[EWSFS_BLOCK_SIZE];
-    if (!ewsfs_block_read(fsfile, 0, buffer)) return 69;
-    buffer[69] = ':';
-    buffer[70] = ')';
-    if (!ewsfs_block_write(fsfile, 0, buffer)) return 70;
-    fclose(fsfile);
 
+    ewsfs_block_read_size(fsfile);
+    ewsfs_fact_buffer_t buffer = {0};
+    ewsfs_fact_read(fsfile, &buffer);
+    for (size_t i = 0; i < buffer.count; ++i) {
+        printf("%c", buffer.items[i]);
+    }
+    printf("\n");
+
+    fclose(fsfile);
     return 0;
 
     Nob_String_Builder fact = {0};

@@ -16,12 +16,12 @@ uint64_t ewsfs_block_get_size() {
     return ewsfs_block_size;
 }
 
-bool ewsfs_block_read(FILE* file, size_t block_index, uint8_t* buffer) {
+bool ewsfs_block_read(FILE* file, uint64_t block_index, uint8_t* buffer) {
     fseek(file, BLOCK_SIZE_RESERVED_BYTES + block_index*EWSFS_BLOCK_SIZE, SEEK_SET);
     return fread(buffer, EWSFS_BLOCK_SIZE, 1, file) == 1;
 }
 
-bool ewsfs_block_write(FILE* file, size_t block_index, const uint8_t* buffer) {
+bool ewsfs_block_write(FILE* file, uint64_t block_index, const uint8_t* buffer) {
     fseek(file, BLOCK_SIZE_RESERVED_BYTES + block_index*EWSFS_BLOCK_SIZE, SEEK_SET);
     return fwrite(buffer, EWSFS_BLOCK_SIZE, 1, file) == 1;
 }
