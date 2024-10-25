@@ -10,5 +10,6 @@ typedef struct {
 } ewsfs_fact_buffer_t;
 
 bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer);
-bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t* buffer);
+// Always call this function AFTER reading the FACT at least once
+bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer);
 

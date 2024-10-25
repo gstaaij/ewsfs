@@ -220,11 +220,17 @@ int main(int argc, char** argv) {
 
     ewsfs_block_read_size(fsfile);
     ewsfs_fact_buffer_t buffer = {0};
-    ewsfs_fact_read(fsfile, &buffer);
+    if (!ewsfs_fact_read(fsfile, &buffer))
+        return 42;
+    
     for (size_t i = 0; i < buffer.count; ++i) {
         printf("%c", buffer.items[i]);
     }
     printf("\n");
+
+    nob_da_append_many(&buffer, "\nHello, World!", 14);
+    if (!ewsfs_fact_write(fsfile, buffer))
+        return 43;
 
     fclose(fsfile);
     return 0;
