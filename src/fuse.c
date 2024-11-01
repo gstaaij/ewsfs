@@ -12,7 +12,6 @@
 #define NOB_IMPLEMENTATION
 #include "nob.h"
 
-#define HELLOWORLD_FILE "ewsfs.txt"
 static Nob_String_Builder ewsfs_filecontents = {0};
 
 char* devfile = NULL;
@@ -24,15 +23,13 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         st->st_mode = S_IFDIR | 0755;
         st->st_nlink = 2;
         st->st_size = 4096;
-    } else if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
-        // It's the `ewsfs.txt` file
+    } else if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        // It's the FACT file
         st->st_mode = S_IFREG | 0644;
         st->st_nlink = 2;
-        st->st_size = ewsfs_filecontents.count;
+        st->st_size = 6009; // TODO
     } else {
-        st->st_mode = S_IFREG | 0644;
-        st->st_nlink = 2;
-        st->st_size = 4096;
+        return -2;
     }
     // User and group. we use the user's id who is executing the FUSE driver
     st->st_uid = getuid();
@@ -46,34 +43,30 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     (void) fi;
     filler(buffer, ".", NULL, 0);
     filler(buffer, "..", NULL, 0);
-    filler(buffer, HELLOWORLD_FILE, NULL, 0);
+    if (strcmp(path, "/") == 0)
+        filler(buffer, EWSFS_FACT_FILE, NULL, 0);
     return 0;
 }
 
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     (void) offset;
     (void) fi;
-    if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
-        size_t bytecount = 0;
-        for (size_t i = 0; i < size && i < ewsfs_filecontents.count; ++i) {
-            buffer[i] = ewsfs_filecontents.items[i];
-            bytecount++;
-        }
-        return bytecount;
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return ewsfs_fact_call_read(buffer, size, offset);
     }
     return -1;
 }
 
 static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
     (void) fi;
-    if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return 0;
     }
     return -1;
 }
 
 static int ewsfs_truncate(const char* path, off_t length) {
-    if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         long sizediff = length - ewsfs_filecontents.count;
         for (long i = 0; i < sizediff; ++i) {
             nob_da_append(&ewsfs_filecontents, '\0');
@@ -87,17 +80,18 @@ static int ewsfs_truncate(const char* path, off_t length) {
 
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     (void) fi;
-    if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
-        // nob_sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\nwrite{size: %zu, offset: %ld}", size, offset));
-        size_t bytecount = 0;
-        for (size_t i = offset; i < offset + size; ++i) {
-            if (i < ewsfs_filecontents.count)
-                ewsfs_filecontents.items[i] = buffer[i - offset];
-            else
-                nob_da_append(&ewsfs_filecontents, buffer[i - offset]);
-            bytecount++;
-        }
-        return bytecount;
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return ewsfs_fact_call_write(buffer, size, offset);
+    }
+    return -1;
+}
+
+static int ewsfs_flush(const char* path, struct fuse_file_info* fi) {
+    (void) fi;
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        int result = ewsfs_fact_call_flush(fsfile);
+        fflush(fsfile);
+        return result;
     }
     return -1;
 }
@@ -115,6 +109,7 @@ static struct fuse_operations ewsfs_ops = {
     .open = ewsfs_open,
     .truncate = ewsfs_truncate,
     .write = ewsfs_write,
+    .flush = ewsfs_flush,
     .destroy = ewsfs_destroy,
 };
 

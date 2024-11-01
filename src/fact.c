@@ -1,12 +1,15 @@
 #include "fact.h"
 #include "block.h"
 #include "nob.h"
+#include <fuse.h>
 #include <string.h>
 
 #define FACT_END_ADDRESS_SIZE 4
 
 ewsfs_block_index_list_t fact_block_indexes = {0};
 cJSON* fact_root;
+ewsfs_fact_buffer_t // TODO
+ewsfs_fact_buffer_t fact_file_buffer = {0};
 
 bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
     uint8_t temp_buffer[EWSFS_BLOCK_SIZE];
@@ -90,22 +93,47 @@ bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
     return true;
 }
 
+int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset) {
+    size_t bytecount = 0;
+    for (size_t i = offset; i < offset + size && i < fact_file_buffer.count; ++i) {
+        buffer[i] = fact_file_buffer.items[i];
+        bytecount++;
+    }
+    return bytecount;
+}
+
+int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset) {
+    size_t bytecount = 0;
+    for (size_t i = offset; i < offset + size; ++i) {
+        if (i < fact_file_buffer.count)
+            fact_file_buffer.items[i] = buffer[i - offset];
+        else
+            nob_da_append(&fact_file_buffer, buffer[i - offset]);
+        bytecount++;
+    }
+    return bytecount;
+}
+
+int ewsfs_fact_call_flush(FILE* file) {
+    cJSON* new_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
+    if (!new_root || !ewsfs_fact_validate(new_root))
+        return EOF;
+    if (!ewsfs_fact_write(file, fact_file_buffer))
+        return EOF;
+    cJSON_free(fact_root);
+    fact_root = new_root;
+    return 0;
+}
+
 bool ewsfs_fact_init(FILE* file) {
-    ewsfs_fact_buffer_t fact = {0};
-    ewsfs_fact_read(file, &fact);
-    nob_sb_append_null(&fact);
-    fact_root = cJSON_Parse((char*) fact.items);
+    fact_file_buffer.count = 0;
+    ewsfs_fact_read(file, &fact_file_buffer);
+    fact_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
     if (!fact_root)
         return false;
     
 
-    cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(fact_root, "filesystem_info");
-    if (!cJSON_IsObject(fs_info) ||
-        !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
-        nob_log(NOB_ERROR, "Filesystem Info not valid.");
-        return false;
-    }
-    if (!ewsfs_fact_validate_dir(fact_root))
+    if (!ewsfs_fact_validate(fact_root))
         return false;
 #ifdef DEBUG
     printf("%s", cJSON_Print(fact_root));
@@ -118,6 +146,18 @@ void ewsfs_fact_uninit() {
     if (fact_root)
         cJSON_Delete(fact_root);
     nob_da_free(fact_block_indexes);
+}
+
+bool ewsfs_fact_validate(cJSON* root) {
+    cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(root, "filesystem_info");
+    if (!cJSON_IsObject(fs_info) ||
+        !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
+        nob_log(NOB_ERROR, "Filesystem Info not valid.");
+        return false;
+    }
+    if (!ewsfs_fact_validate_dir(root))
+        return false;
+    return true;
 }
 
 bool ewsfs_fact_validate_attributes(cJSON* item) {

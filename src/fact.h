@@ -4,19 +4,24 @@
 #include <stdio.h>
 #include "lib/cJSON.h"
 
+#define EWSFS_FACT_FILE "fact.json"
+
 typedef struct {
     uint8_t* items;
     size_t count;
     size_t capacity;
 } ewsfs_fact_buffer_t;
 
-bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer);
-// Always call this function AFTER reading the FACT at least once
-bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer);
+// I can't come up with a better name for these functions, they're the functions
+// that should be called when operations are performed on the FACT file
+int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset);
+int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset);
+int ewsfs_fact_call_flush(FILE* file);
 
 
 bool ewsfs_fact_init(FILE* file);
 void ewsfs_fact_uninit();
+bool ewsfs_fact_validate(cJSON* root);
 bool ewsfs_fact_validate_attributes(cJSON* item);
 bool ewsfs_fact_validate_file(cJSON* file);
 bool ewsfs_fact_validate_dir(cJSON* dir);
