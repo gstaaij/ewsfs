@@ -84,6 +84,7 @@ static int ewsfs_truncate(const char* path, off_t length) {
             nob_da_append(&ewsfs_filecontents, '\0');
         }
         ewsfs_filecontents.count = length;
+        // nob_sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\ntruncate{offset: %ld}", length));
         return 0;
     }
     return -1;
@@ -92,15 +93,15 @@ static int ewsfs_truncate(const char* path, off_t length) {
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     (void) fi;
     if (strcmp(path, "/"HELLOWORLD_FILE) == 0) {
+        // nob_sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\nwrite{size: %zu, offset: %ld}", size, offset));
         size_t bytecount = 0;
-        for (size_t i = offset; i < size; ++i) {
+        for (size_t i = offset; i < offset + size; ++i) {
             if (i < ewsfs_filecontents.count)
-                ewsfs_filecontents.items[i] = buffer[i];
+                ewsfs_filecontents.items[i] = buffer[i - offset];
             else
-                nob_da_append(&ewsfs_filecontents, buffer[i]);
+                nob_da_append(&ewsfs_filecontents, buffer[i - offset]);
             bytecount++;
         }
-        ewsfs_filecontents.count = bytecount;
         return bytecount;
     }
     return -1;
@@ -219,21 +220,21 @@ int main(int argc, char** argv) {
     }
 
     ewsfs_block_read_size(fsfile);
-    ewsfs_fact_buffer_t buffer = {0};
-    if (!ewsfs_fact_read(fsfile, &buffer))
-        return 42;
+    // ewsfs_fact_buffer_t buffer = {0};
+    // if (!ewsfs_fact_read(fsfile, &buffer))
+    //     return 42;
     
-    for (size_t i = 0; i < buffer.count; ++i) {
-        printf("%c", buffer.items[i]);
-    }
-    printf("\n");
+    // for (size_t i = 0; i < buffer.count; ++i) {
+    //     printf("%c", buffer.items[i]);
+    // }
+    // printf("\n");
 
-    nob_da_append_many(&buffer, "\nHello, World!", 14);
-    if (!ewsfs_fact_write(fsfile, buffer))
-        return 43;
+    // nob_da_append_many(&buffer, "\nHello, World!", 14);
+    // if (!ewsfs_fact_write(fsfile, buffer))
+    //     return 43;
 
-    fclose(fsfile);
-    return 0;
+    // fclose(fsfile);
+    // return 0;
 
     Nob_String_Builder fact = {0};
     if (!nob_read_entire_file("build/fact.json", &fact))
