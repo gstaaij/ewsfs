@@ -8,7 +8,7 @@
 
 ewsfs_block_index_list_t fact_block_indexes = {0};
 cJSON* fact_root;
-ewsfs_fact_buffer_t // TODO
+ewsfs_fact_buffer_t fact_current_file_on_disk = {0};
 ewsfs_fact_buffer_t fact_file_buffer = {0};
 
 bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
@@ -95,8 +95,8 @@ bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
 
 int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset) {
     size_t bytecount = 0;
-    for (size_t i = offset; i < offset + size && i < fact_file_buffer.count; ++i) {
-        buffer[i] = fact_file_buffer.items[i];
+    for (size_t i = offset; i < offset + size && i < fact_current_file_on_disk.count; ++i) {
+        buffer[i] = fact_current_file_on_disk.items[i];
         bytecount++;
     }
     return bytecount;
@@ -116,10 +116,16 @@ int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset) {
 
 int ewsfs_fact_call_flush(FILE* file) {
     cJSON* new_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
-    if (!new_root || !ewsfs_fact_validate(new_root))
+    if (!new_root || !ewsfs_fact_validate(new_root) || !ewsfs_fact_write(file, fact_file_buffer)) {
+        // If not successful, reset the fact_file_buffer
+        fact_file_buffer.count = 0;
+        nob_da_append_many(&fact_file_buffer, fact_current_file_on_disk.items, fact_current_file_on_disk.count);
         return EOF;
-    if (!ewsfs_fact_write(file, fact_file_buffer))
-        return EOF;
+    }
+    // If successful, copy the fact_file_buffer to the fact_current_file_on_disk
+    fact_current_file_on_disk.count = 0;
+    nob_da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
+
     cJSON_free(fact_root);
     fact_root = new_root;
     return 0;
@@ -128,6 +134,11 @@ int ewsfs_fact_call_flush(FILE* file) {
 bool ewsfs_fact_init(FILE* file) {
     fact_file_buffer.count = 0;
     ewsfs_fact_read(file, &fact_file_buffer);
+
+    // Copy the buffer to the current_file_on_disk buffer as well
+    fact_current_file_on_disk.count = 0;
+    nob_da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
+
     fact_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
     if (!fact_root)
         return false;
