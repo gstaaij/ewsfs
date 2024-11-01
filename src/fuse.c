@@ -15,8 +15,6 @@
 #define HELLOWORLD_FILE "ewsfs.txt"
 static Nob_String_Builder ewsfs_filecontents = {0};
 
-#define DEBUG
-
 char* devfile = NULL;
 FILE* fsfile = NULL;
 
