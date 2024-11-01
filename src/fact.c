@@ -100,7 +100,8 @@ bool ewsfs_fact_init(FILE* file) {
     
 
     cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(fact_root, "filesystem_info");
-    if (!cJSON_IsObject(fs_info)) {
+    if (!cJSON_IsObject(fs_info) ||
+        !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
         nob_log(NOB_ERROR, "Filesystem Info not valid.");
         return false;
     }
