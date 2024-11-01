@@ -6,6 +6,7 @@
 #define FACT_END_ADDRESS_SIZE 4
 
 ewsfs_block_index_list_t fact_block_indexes = {0};
+cJSON* fact_root;
 
 bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
     uint8_t temp_buffer[EWSFS_BLOCK_SIZE];
@@ -87,4 +88,109 @@ bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
             return false;
     }
     return true;
+}
+
+bool ewsfs_fact_init(FILE* file) {
+    ewsfs_fact_buffer_t fact = {0};
+    ewsfs_fact_read(file, &fact);
+    nob_sb_append_null(&fact);
+    fact_root = cJSON_Parse((char*) fact.items);
+    if (!fact_root)
+        return false;
+    
+
+    cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(fact_root, "filesystem_info");
+    if (!cJSON_IsObject(fs_info)) {
+        nob_log(NOB_ERROR, "Filesystem Info not valid.");
+        return false;
+    }
+    if (!ewsfs_fact_validate_dir(fact_root))
+        return false;
+#ifdef DEBUG
+    printf("%s", cJSON_Print(fact_root));
+#endif
+
+    return true;
+}
+
+void ewsfs_fact_uninit() {
+    if (fact_root)
+        cJSON_Delete(fact_root);
+    nob_da_free(fact_block_indexes);
+}
+
+bool ewsfs_fact_validate_attributes(cJSON* item) {
+    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
+    static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed"};
+    if (!cJSON_IsObject(attributes)) {
+        // We don't want to throw an error when all of the attributes are missing,
+        // just use the default values if that's the case.
+
+        if (attributes != NULL)
+            cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
+        
+        attributes = cJSON_CreateObject();
+        for (size_t i = 0; i > NOB_ARRAY_LEN(attribute_names); ++i) {
+            cJSON* attr = cJSON_CreateNumber(0);
+            cJSON_AddItemToObject(attributes, attribute_names[i], attr);
+        }
+        cJSON_AddItemToObject(item, "attributes", attributes);
+    } else {
+        for (size_t i = 0; i < NOB_ARRAY_LEN(attribute_names); ++i) {
+            if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_names[i]))) {
+                nob_log(NOB_ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool ewsfs_fact_validate_file(cJSON* file) {
+    if (!ewsfs_fact_validate_attributes(file))
+        return false;
+
+    if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(file, "file_size"))) {
+        nob_log(NOB_ERROR, "File Size of file %s is not a valid number.", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+        return false;
+    }
+    
+    size_t index = 0;
+    cJSON* alloc = NULL;
+    cJSON_ArrayForEach(alloc, cJSON_GetObjectItemCaseSensitive(file, "allocation")) {
+        if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "from"))) {
+            nob_log(NOB_ERROR, "`from` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+            return false;
+        }
+        if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "length"))) {
+            nob_log(NOB_ERROR, "`length` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+            return false;
+        }
+        index++;
+    }
+
+    return true;
+}
+
+bool ewsfs_fact_validate_dir(cJSON* dir) {
+    if (!ewsfs_fact_validate_attributes(dir))
+        return false;
+
+    cJSON* item = NULL;
+    cJSON_ArrayForEach(item, cJSON_GetObjectItemCaseSensitive(dir, "contents")) {
+        if (!ewsfs_fact_validate_item(item))
+            return false;
+    }
+    return true;
+}
+
+bool ewsfs_fact_validate_item(cJSON* item) {
+    if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(item, "name")))
+        return false;
+    cJSON* is_dir = cJSON_GetObjectItemCaseSensitive(item, "is_dir");
+    if (!cJSON_IsBool(is_dir))
+        return false;
+    if (cJSON_IsTrue(is_dir))
+        return ewsfs_fact_validate_dir(item);
+    return ewsfs_fact_validate_file(item);
 }

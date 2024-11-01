@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "lib/cJSON.h"
 #include "block.h"
 #include "fact.h"
 
@@ -20,8 +19,6 @@ static Nob_String_Builder ewsfs_filecontents = {0};
 
 char* devfile = NULL;
 FILE* fsfile = NULL;
-
-cJSON* root;
 
 static int ewsfs_getattr(const char* path, struct stat* st) {
     if (strcmp(path, "/") == 0) {
@@ -108,8 +105,9 @@ static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t 
 }
 
 static void ewsfs_destroy() {
-    if (root)
-        cJSON_Delete(root);
+    ewsfs_fact_uninit();
+    nob_da_free(ewsfs_filecontents);
+    fclose(fsfile);
 }
 
 static struct fuse_operations ewsfs_ops = {
@@ -121,84 +119,6 @@ static struct fuse_operations ewsfs_ops = {
     .write = ewsfs_write,
     .destroy = ewsfs_destroy,
 };
-
-static bool validate_fact_item(cJSON* item);
-
-static bool validate_fact_attributes(cJSON* item) {
-    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
-    static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed"};
-    if (!cJSON_IsObject(attributes)) {
-        // We don't want to throw an error when all of the attributes are missing,
-        // just use the default values if that's the case.
-
-        if (attributes != NULL)
-            cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
-        
-        attributes = cJSON_CreateObject();
-        for (size_t i = 0; i > NOB_ARRAY_LEN(attribute_names); ++i) {
-            cJSON* attr = cJSON_CreateNumber(0);
-            cJSON_AddItemToObject(attributes, attribute_names[i], attr);
-        }
-        cJSON_AddItemToObject(item, "attributes", attributes);
-    } else {
-        for (size_t i = 0; i < NOB_ARRAY_LEN(attribute_names); ++i) {
-            if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_names[i]))) {
-                nob_log(NOB_ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-static bool validate_fact_file(cJSON* file) {
-    if (!validate_fact_attributes(file))
-        return false;
-
-    if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(file, "file_size"))) {
-        nob_log(NOB_ERROR, "File Size of file %s is not a valid number.", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
-        return false;
-    }
-    
-    size_t index = 0;
-    cJSON* alloc = NULL;
-    cJSON_ArrayForEach(alloc, cJSON_GetObjectItemCaseSensitive(file, "allocation")) {
-        if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "from"))) {
-            nob_log(NOB_ERROR, "`from` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
-            return false;
-        }
-        if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "length"))) {
-            nob_log(NOB_ERROR, "`length` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
-            return false;
-        }
-        index++;
-    }
-
-    return true;
-}
-
-static bool validate_fact_dir(cJSON* dir) {
-    if (!validate_fact_attributes(dir))
-        return false;
-
-    cJSON* item = NULL;
-    cJSON_ArrayForEach(item, cJSON_GetObjectItemCaseSensitive(dir, "contents")) {
-        if (!validate_fact_item(item))
-            return false;
-    }
-    return true;
-}
-
-static bool validate_fact_item(cJSON* item) {
-    if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(item, "name")))
-        return false;
-    cJSON* is_dir = cJSON_GetObjectItemCaseSensitive(item, "is_dir");
-    if (!cJSON_IsBool(is_dir))
-        return false;
-    if (cJSON_IsTrue(is_dir))
-        return validate_fact_dir(item);
-    return validate_fact_file(item);
-}
 
 
 int main(int argc, char** argv) {
@@ -216,10 +136,13 @@ int main(int argc, char** argv) {
     fsfile = fopen(devfile, "rb+");
     if (fsfile == NULL) {
         nob_log(NOB_ERROR, "Couldn't open input file %s", devfile);
-        return 4;
+        return 1;
     }
 
     ewsfs_block_read_size(fsfile);
+    if (!ewsfs_fact_init(fsfile))
+        return 2;
+
     // ewsfs_fact_buffer_t buffer = {0};
     // if (!ewsfs_fact_read(fsfile, &buffer))
     //     return 42;
@@ -236,26 +159,6 @@ int main(int argc, char** argv) {
     // fclose(fsfile);
     // return 0;
 
-    Nob_String_Builder fact = {0};
-    if (!nob_read_entire_file("build/fact.json", &fact))
-        return 1;
-    nob_sb_append_null(&fact);
-    root = cJSON_Parse(fact.items);
-    if (!root)
-        return 2;
-    
-
-    cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(root, "filesystem_info");
-    if (!cJSON_IsObject(fs_info) ||
-        !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "block_size"))) {
-        nob_log(NOB_ERROR, "Filesystem Info not valid.");
-        return 3;
-    }
-    if (!validate_fact_dir(root))
-        return 3;
-#ifdef DEBUG
-    printf("%s", cJSON_Print(root));
-#endif
     // leave the rest to FUSE
     return fuse_main(argc, argv, &ewsfs_ops, NULL);
 }
