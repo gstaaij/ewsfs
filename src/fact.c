@@ -1,5 +1,6 @@
 #include "fact.h"
 #include "block.h"
+#define NOB_STRIP_PREFIX
 #include "nob.h"
 #include <fuse.h>
 #include <string.h>
@@ -19,7 +20,7 @@ bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
         if (!ewsfs_block_read(file, current_block_index, temp_buffer))
             return false;
         // Add the current block index to the list of used FACT indexes
-        nob_da_append(&fact_block_indexes, current_block_index);
+        da_append(&fact_block_indexes, current_block_index);
         
         // Get the next block index
         current_block_index = 0;
@@ -40,7 +41,7 @@ bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
         }
 
         // Append the temp buffer to the final buffer, except for the last end_trim number of bytes
-        nob_da_append_many(buffer, temp_buffer, EWSFS_BLOCK_SIZE - end_trim);
+        da_append_many(buffer, temp_buffer, EWSFS_BLOCK_SIZE - end_trim);
         // Repeat until there aren't any blocks anymore
     } while (current_block_index != 0);
     return true;
@@ -64,7 +65,7 @@ bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
             uint64_t new_block_index = 0;
             if (!ewsfs_block_get_next_free_index(fact_block_indexes, &new_block_index))
                 return false;
-            nob_da_append(&fact_block_indexes, new_block_index);
+            da_append(&fact_block_indexes, new_block_index);
         }
 
         // The block we'll be writing to the file
@@ -108,7 +109,7 @@ int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset) {
         if (i < fact_file_buffer.count)
             fact_file_buffer.items[i] = buffer[i - offset];
         else
-            nob_da_append(&fact_file_buffer, buffer[i - offset]);
+            da_append(&fact_file_buffer, buffer[i - offset]);
         bytecount++;
     }
     return bytecount;
@@ -119,12 +120,12 @@ int ewsfs_fact_call_flush(FILE* file) {
     if (!new_root || !ewsfs_fact_validate(new_root) || !ewsfs_fact_write(file, fact_file_buffer)) {
         // If not successful, reset the fact_file_buffer
         fact_file_buffer.count = 0;
-        nob_da_append_many(&fact_file_buffer, fact_current_file_on_disk.items, fact_current_file_on_disk.count);
+        da_append_many(&fact_file_buffer, fact_current_file_on_disk.items, fact_current_file_on_disk.count);
         return EOF;
     }
     // If successful, copy the fact_file_buffer to the fact_current_file_on_disk
     fact_current_file_on_disk.count = 0;
-    nob_da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
+    da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
 
     cJSON_free(fact_root);
     fact_root = new_root;
@@ -137,7 +138,7 @@ bool ewsfs_fact_init(FILE* file) {
 
     // Copy the buffer to the current_file_on_disk buffer as well
     fact_current_file_on_disk.count = 0;
-    nob_da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
+    da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
 
     fact_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
     if (!fact_root)
@@ -156,14 +157,14 @@ bool ewsfs_fact_init(FILE* file) {
 void ewsfs_fact_uninit() {
     if (fact_root)
         cJSON_Delete(fact_root);
-    nob_da_free(fact_block_indexes);
+    da_free(fact_block_indexes);
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
     cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(root, "filesystem_info");
     if (!cJSON_IsObject(fs_info) ||
         !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
-        nob_log(NOB_ERROR, "Filesystem Info not valid.");
+        nob_log(ERROR, "Filesystem Info not valid.");
         return false;
     }
     if (!ewsfs_fact_validate_dir(root))
@@ -182,15 +183,15 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
             cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
         
         attributes = cJSON_CreateObject();
-        for (size_t i = 0; i > NOB_ARRAY_LEN(attribute_names); ++i) {
+        for (size_t i = 0; i > ARRAY_LEN(attribute_names); ++i) {
             cJSON* attr = cJSON_CreateNumber(0);
             cJSON_AddItemToObject(attributes, attribute_names[i], attr);
         }
         cJSON_AddItemToObject(item, "attributes", attributes);
     } else {
-        for (size_t i = 0; i < NOB_ARRAY_LEN(attribute_names); ++i) {
+        for (size_t i = 0; i < ARRAY_LEN(attribute_names); ++i) {
             if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_names[i]))) {
-                nob_log(NOB_ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
+                nob_log(ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
                 return false;
             }
         }
@@ -203,7 +204,7 @@ bool ewsfs_fact_validate_file(cJSON* file) {
         return false;
 
     if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(file, "file_size"))) {
-        nob_log(NOB_ERROR, "File Size of file %s is not a valid number.", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+        nob_log(ERROR, "File Size of file %s is not a valid number.", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
         return false;
     }
     
@@ -211,11 +212,11 @@ bool ewsfs_fact_validate_file(cJSON* file) {
     cJSON* alloc = NULL;
     cJSON_ArrayForEach(alloc, cJSON_GetObjectItemCaseSensitive(file, "allocation")) {
         if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "from"))) {
-            nob_log(NOB_ERROR, "`from` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+            nob_log(ERROR, "`from` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
             return false;
         }
         if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(alloc, "length"))) {
-            nob_log(NOB_ERROR, "`length` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
+            nob_log(ERROR, "`length` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
             return false;
         }
         index++;

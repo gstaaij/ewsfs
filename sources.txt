@@ -1,3 +1,5 @@
 https://wiki.osdev.org/FUSE
 https://www.cs.nmsu.edu/~pfeiffer/fuse-tutorial/
 https://cplusplus.com/reference/cstdio/
+https://github.com/DaveGamble/cJSON
+https://github.com/tsoding/nob.h

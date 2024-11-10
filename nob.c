@@ -1,4 +1,5 @@
 #define NOB_IMPLEMENTATION
+#define NOB_STRIP_PREFIX
 #include "src/nob.h"
 
 static char* c_files[] = {
@@ -9,7 +10,7 @@ static char* c_files[] = {
     "src/lib/cJSON.c",
 };
 
-void log_usage(Nob_Log_Level log_level, const char* program) {
+void log_usage(Log_Level log_level, const char* program) {
     nob_log(log_level, "Usage: %s [command] [command args]", program);
     nob_log(log_level, "Possible commands:");
     nob_log(log_level, "    build       Just builds the program.");
@@ -24,61 +25,57 @@ void log_usage(Nob_Log_Level log_level, const char* program) {
 int main(int argc, char** argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
-    Nob_Cmd cmd = {0};
+    Cmd cmd = {0};
 
-    const char* program = nob_shift_args(&argc, &argv);
+    const char* program = shift(argv, argc);
 
     bool should_mount = false;
     char* mount_path = NULL;
     if (argc > 0) {
-        const char* command = nob_shift_args(&argc, &argv);
+        const char* command = shift(argv, argc);
         if (strcmp(command, "build") == 0) {
             should_mount = false;
         } else if (strcmp(command, "mount") == 0) {
             should_mount = true;
 
             if (argc > 0)
-                mount_path = nob_shift_args(&argc, &argv);
+                mount_path = shift(argv, argc);
         } else if (strcmp(command, "umount") == 0) {
-            cmd.count = 0;
-            nob_cmd_append(&cmd, "fusermount", "-u", "build/mnt");
-            if (!nob_cmd_run_sync(cmd)) return 1;
+            cmd_append(&cmd, "fusermount", "-u", "build/mnt");
+            if (!cmd_run_sync_and_reset(&cmd)) return 1;
             return 0;
         } else if (strcmp(command, "help") == 0 || strcmp(command, "--help") == 0) {
-            log_usage(NOB_INFO, program);
+            log_usage(INFO, program);
             return 0;
         } else {
-            nob_log(NOB_ERROR, "Invalid command '%s'.", command);
-            log_usage(NOB_ERROR, program);
+            nob_log(ERROR, "Invalid command '%s'.", command);
+            log_usage(ERROR, program);
             return 1;
         }
     }
 
-    nob_mkdir_if_not_exists("build");
+    mkdir_if_not_exists("build");
 
-    cmd.count = 0;
-    nob_cmd_append(&cmd, "gcc", "-Wall", "-Wextra", "-ggdb");
-    nob_cmd_append(&cmd, "-D_FILE_OFFSET_BITS=64");
-    nob_cmd_append(&cmd, "-o", "build/ewsfs_fuse");
-    for (size_t i = 0; i < NOB_ARRAY_LEN(c_files); ++i) {
-        nob_cmd_append(&cmd, c_files[i]);
+    cmd_append(&cmd, "gcc", "-Wall", "-Wextra", "-ggdb");
+    cmd_append(&cmd, "-D_FILE_OFFSET_BITS=64");
+    cmd_append(&cmd, "-o", "build/ewsfs_fuse");
+    for (size_t i = 0; i < ARRAY_LEN(c_files); ++i) {
+        cmd_append(&cmd, c_files[i]);
     }
-    nob_cmd_append(&cmd, "-lfuse");
-    if (!nob_cmd_run_sync(cmd)) return 1;
+    cmd_append(&cmd, "-lfuse");
+    if (!cmd_run_sync_and_reset(&cmd)) return 1;
 
     if (should_mount) {
         nob_mkdir_if_not_exists("build/mnt");
 
-        nob_log(NOB_INFO, "Trying to unmount build/mnt in case it's already mounted...");
-        cmd.count = 0;
-        nob_cmd_append(&cmd, "fusermount", "-u", "build/mnt");
-        nob_cmd_run_sync(cmd);
-        nob_log(NOB_INFO, "Done trying to unmount. You can ignore any errors fusermount spits out.");
-        nob_log(NOB_INFO, "");
+        nob_log(INFO, "Trying to unmount build/mnt in case it's already mounted...");
+        cmd_append(&cmd, "fusermount", "-u", "build/mnt");
+        cmd_run_sync_and_reset(&cmd);
+        nob_log(INFO, "Done trying to unmount. You can ignore any errors fusermount spits out.");
+        nob_log(INFO, "");
 
-        cmd.count = 0;
-        nob_cmd_append(&cmd, "./build/ewsfs_fuse", mount_path ? mount_path : "/dev/zero", "build/mnt");
-        if (!nob_cmd_run_sync(cmd)) return 1;
+        cmd_append(&cmd, "./build/ewsfs_fuse", mount_path ? mount_path : "/dev/zero", "build/mnt");
+        if (!cmd_run_sync_and_reset(&cmd)) return 1;
     }
 
     return 0;

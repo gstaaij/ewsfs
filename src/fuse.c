@@ -10,9 +10,10 @@
 #include "fact.h"
 
 #define NOB_IMPLEMENTATION
+#define NOB_STRIP_PREFIX
 #include "nob.h"
 
-static Nob_String_Builder ewsfs_filecontents = {0};
+static String_Builder ewsfs_filecontents = {0};
 
 char* devfile = NULL;
 FILE* fsfile = NULL;
@@ -69,10 +70,10 @@ static int ewsfs_truncate(const char* path, off_t length) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         long sizediff = length - ewsfs_filecontents.count;
         for (long i = 0; i < sizediff; ++i) {
-            nob_da_append(&ewsfs_filecontents, '\0');
+            da_append(&ewsfs_filecontents, '\0');
         }
         ewsfs_filecontents.count = length;
-        // nob_sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\ntruncate{offset: %ld}", length));
+        // sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\ntruncate{offset: %ld}", length));
         return 0;
     }
     return -1;
@@ -98,7 +99,7 @@ static int ewsfs_flush(const char* path, struct fuse_file_info* fi) {
 
 static void ewsfs_destroy() {
     ewsfs_fact_uninit();
-    nob_da_free(ewsfs_filecontents);
+    da_free(ewsfs_filecontents);
     fclose(fsfile);
 }
 
@@ -116,7 +117,7 @@ static struct fuse_operations ewsfs_ops = {
 
 int main(int argc, char** argv) {
     int i;
-    nob_sb_append_cstr(&ewsfs_filecontents, "Hello, World!");
+    sb_append_cstr(&ewsfs_filecontents, "Hello, World!");
 
     // Get the device or image filename from arguments
     for (i = 1; i < argc && argv[i][0] == '-'; ++i);
@@ -128,7 +129,7 @@ int main(int argc, char** argv) {
 
     fsfile = fopen(devfile, "rb+");
     if (fsfile == NULL) {
-        nob_log(NOB_ERROR, "Couldn't open input file %s", devfile);
+        nob_log(ERROR, "Couldn't open input file %s", devfile);
         return 1;
     }
 
@@ -145,7 +146,7 @@ int main(int argc, char** argv) {
     // }
     // printf("\n");
 
-    // nob_da_append_many(&buffer, "\nHello, World!", 14);
+    // da_append_many(&buffer, "\nHello, World!", 14);
     // if (!ewsfs_fact_write(fsfile, buffer))
     //     return 43;
 
