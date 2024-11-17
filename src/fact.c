@@ -132,6 +132,63 @@ int ewsfs_fact_call_flush(FILE* file) {
     return 0;
 }
 
+int ewsfs_fact_file_getattr(const char* path, struct stat* st) {
+    String_View sv_path = sv_from_cstr(path);
+    if (sv_path.count < 2) return -2;
+    if (sv_path.data[0] != '/') return -2;
+
+    cJSON* current_dir_contents = cJSON_GetObjectItemCaseSensitive(fact_root, "contents");
+
+    String_View name;
+    // Traverse the directory structure
+    while (sv_path.count > 0) {
+        name = sv_chop_by_delim(&sv_path, '/');
+        // This skips the initial delimiter and also any potential double delimiters or a delimiter at the end
+        if (name.count == 0) continue;
+        
+        // Go over all of the items in the `contents` array
+        bool found = false;
+        cJSON* item = NULL;
+        cJSON_ArrayForEach(item, current_dir_contents) {
+            const char* name_json_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name"));
+            String_View name_json = sv_from_cstr(name_json_str);
+            // If it matches with the name we got from the path...
+            if (sv_eq(name, name_json)) {
+                found = true;
+
+                if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+                    // ...and if it's a directory, we continue traversing the directory structure.
+                    current_dir_contents = cJSON_GetObjectItemCaseSensitive(item, "contents");
+                    break;
+                }
+
+                // ...and if it's a file, we get the attributes to said file and return out of the function
+
+                // If the directory structure wasn't fully traversed,
+                // this wasn't the file the user was looking for.
+                if (sv_path.count != 0) return -2;
+
+
+                st->st_mode = S_IFREG | 0644; // TODO: add permissions
+                st->st_nlink = 2;
+                st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
+                // TODO: access, modification and creation dates
+
+                return 0;
+            }
+        }
+
+        if (!found) return -2; // We couldn't find the file, so return an error
+    }
+
+    // We traversed the whole path and didn't find a file.
+    // This means we found a directory!
+    st->st_mode = S_IFDIR | 0755; // TODO: add permissions
+    st->st_nlink = 2;
+    st->st_size = 4096;
+    return 0;
+}
+
 bool ewsfs_fact_init(FILE* file) {
     fact_file_buffer.count = 0;
     ewsfs_fact_read(file, &fact_file_buffer);

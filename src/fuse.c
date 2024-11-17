@@ -30,7 +30,8 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         st->st_nlink = 2;
         st->st_size = 6009; // TODO
     } else {
-        return -2;
+        int result = ewsfs_fact_file_getattr(path, st);
+        if (result != 0) return result;
     }
     // User and group. we use the user's id who is executing the FUSE driver
     st->st_uid = getuid();
@@ -44,8 +45,12 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     (void) fi;
     filler(buffer, ".", NULL, 0);
     filler(buffer, "..", NULL, 0);
-    if (strcmp(path, "/") == 0)
+    if (strcmp(path, "/") == 0) {
         filler(buffer, EWSFS_FACT_FILE, NULL, 0);
+        filler(buffer, "dir", NULL, 0);
+    } else if (strcmp(path, "/dir") == 0) {
+        filler(buffer, "file.txt", NULL, 0);
+    }
     return 0;
 }
 

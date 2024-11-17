@@ -2,9 +2,13 @@
 import sys
 import math
 
+def print_usage(program: str):
+    print(f"Usage: {program} filename fs_size [flags]")
+
 def main(argv) -> int:
     program: str = argv.pop(0)
     if len(argv) < 2:
+        print_usage(program)
         print("ERROR: No file specified and/or FS size specified")
         return 1
     
@@ -12,12 +16,29 @@ def main(argv) -> int:
     try:
         fs_size = math.ceil(int(argv.pop(0)) / 4096) * 4096 + 8
     except ValueError:
+        print_usage(program)
         print("ERROR: Second argument should be FS size.")
+        return 2
+    
+    add_debug_tree = False
+    while len(argv) > 0:
+        flag = argv.pop(0)
+        if (flag == "--debug"):
+            add_debug_tree = True
+        else:
+            print_usage(program)
+            print(f"ERROR: Unknown flag {flag}.")
+            print("Available flags:")
+            print("    --debug")
+            return 3
     
     with open(filename, "wb") as f:
         # Write the block size at the very beginning (64-bit)
         f.write(b"\x00\x00\x00\x00\x00\x00\x10\x00")
-        f.write(b'{"filesystem_info":{"size":'+str(fs_size).encode()+b'},"contents":[]}')
+        f.write(b'{"filesystem_info":{"size":'+str(fs_size).encode()+b'},"contents":[')
+        if (add_debug_tree):
+            f.write(b'{"name": "dir","is_dir": true,"contents": [{"name": "file.txt","is_dir": false,"file_size": 0,"attributes": {"date_created": 1719480000,"date_modified": 1719480000,"date_accessed": 1719480000},"allocation": []}]}')
+        f.write(b']}')
         f.write(bytes(fs_size - f.tell()))
 
     return 0
