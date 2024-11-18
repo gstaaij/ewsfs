@@ -30,7 +30,7 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         st->st_nlink = 2;
         st->st_size = 6009; // TODO
     } else {
-        int result = ewsfs_fact_file_getattr(path, st);
+        int result = ewsfs_file_getattr(path, st);
         if (result != 0) return result;
     }
     // User and group. we use the user's id who is executing the FUSE driver
@@ -58,7 +58,7 @@ static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset,
     (void) offset;
     (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
-        return ewsfs_fact_call_read(buffer, size, offset);
+        return ewsfs_fact_file_read(buffer, size, offset);
     }
     return -1;
 }
@@ -87,7 +87,7 @@ static int ewsfs_truncate(const char* path, off_t length) {
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
-        return ewsfs_fact_call_write(buffer, size, offset);
+        return ewsfs_fact_file_write(buffer, size, offset);
     }
     return -1;
 }
@@ -95,7 +95,7 @@ static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t 
 static int ewsfs_flush(const char* path, struct fuse_file_info* fi) {
     (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
-        int result = ewsfs_fact_call_flush(fsfile);
+        int result = ewsfs_fact_file_flush(fsfile);
         fflush(fsfile);
         return result;
     }
@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
         return 2;
 
     // ewsfs_fact_buffer_t buffer = {0};
-    // if (!ewsfs_fact_read(fsfile, &buffer))
+    // if (!ewsfs_fact_read_from_image(fsfile, &buffer))
     //     return 42;
     
     // for (size_t i = 0; i < buffer.count; ++i) {
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
     // printf("\n");
 
     // da_append_many(&buffer, "\nHello, World!", 14);
-    // if (!ewsfs_fact_write(fsfile, buffer))
+    // if (!ewsfs_fact_write_to_image(fsfile, buffer))
     //     return 43;
 
     // fclose(fsfile);

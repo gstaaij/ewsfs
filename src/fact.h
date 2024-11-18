@@ -15,11 +15,11 @@ typedef struct {
 
 // I can't come up with a better name for these functions, they're the functions
 // that should be called when operations are performed on the FACT file
-int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset);
-int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset);
-int ewsfs_fact_call_flush(FILE* file);
+int ewsfs_fact_file_read(char* buffer, size_t size, off_t offset);
+int ewsfs_fact_file_write(const char* buffer, size_t size, off_t offset);
+int ewsfs_fact_file_flush(FILE* file);
 
-int ewsfs_fact_file_getattr(const char* path, struct stat* st);
+int ewsfs_file_getattr(const char* path, struct stat* st);
 
 
 bool ewsfs_fact_init(FILE* file);

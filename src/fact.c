@@ -12,7 +12,7 @@ cJSON* fact_root;
 ewsfs_fact_buffer_t fact_current_file_on_disk = {0};
 ewsfs_fact_buffer_t fact_file_buffer = {0};
 
-bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
+bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
     uint8_t temp_buffer[EWSFS_BLOCK_SIZE];
     uint64_t current_block_index = 0;
     do {
@@ -48,7 +48,7 @@ bool ewsfs_fact_read(FILE* file, ewsfs_fact_buffer_t* buffer) {
 }
 
 // Always call this function AFTER reading the FACT at least once
-bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
+bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
     uint64_t fact_size_per_block = EWSFS_BLOCK_SIZE - FACT_END_ADDRESS_SIZE;
     double amount_of_blocks_double = buffer.count / (double) fact_size_per_block;
     // Ceil the amount_of_blocks_double value
@@ -94,7 +94,7 @@ bool ewsfs_fact_write(FILE* file, const ewsfs_fact_buffer_t buffer) {
     return true;
 }
 
-int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset) {
+int ewsfs_fact_file_read(char* buffer, size_t size, off_t offset) {
     size_t bytecount = 0;
     for (size_t i = offset; i < offset + size && i < fact_current_file_on_disk.count; ++i) {
         buffer[i] = fact_current_file_on_disk.items[i];
@@ -103,7 +103,7 @@ int ewsfs_fact_call_read(char* buffer, size_t size, off_t offset) {
     return bytecount;
 }
 
-int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset) {
+int ewsfs_fact_file_write(const char* buffer, size_t size, off_t offset) {
     size_t bytecount = 0;
     for (size_t i = offset; i < offset + size; ++i) {
         if (i < fact_file_buffer.count)
@@ -115,9 +115,9 @@ int ewsfs_fact_call_write(const char* buffer, size_t size, off_t offset) {
     return bytecount;
 }
 
-int ewsfs_fact_call_flush(FILE* file) {
+int ewsfs_fact_file_flush(FILE* file) {
     cJSON* new_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
-    if (!new_root || !ewsfs_fact_validate(new_root) || !ewsfs_fact_write(file, fact_file_buffer)) {
+    if (!new_root || !ewsfs_fact_validate(new_root) || !ewsfs_fact_write_to_image(file, fact_file_buffer)) {
         // If not successful, reset the fact_file_buffer
         fact_file_buffer.count = 0;
         da_append_many(&fact_file_buffer, fact_current_file_on_disk.items, fact_current_file_on_disk.count);
@@ -132,7 +132,7 @@ int ewsfs_fact_call_flush(FILE* file) {
     return 0;
 }
 
-int ewsfs_fact_file_getattr(const char* path, struct stat* st) {
+int ewsfs_file_getattr(const char* path, struct stat* st) {
     String_View sv_path = sv_from_cstr(path);
     if (sv_path.count < 2) return -2;
     if (sv_path.data[0] != '/') return -2;
@@ -191,7 +191,7 @@ int ewsfs_fact_file_getattr(const char* path, struct stat* st) {
 
 bool ewsfs_fact_init(FILE* file) {
     fact_file_buffer.count = 0;
-    ewsfs_fact_read(file, &fact_file_buffer);
+    ewsfs_fact_read_from_image(file, &fact_file_buffer);
 
     // Copy the buffer to the current_file_on_disk buffer as well
     fact_current_file_on_disk.count = 0;
