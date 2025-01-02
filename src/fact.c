@@ -195,15 +195,18 @@ cJSON* ewsfs_file_get_item(const char* path) {
 int ewsfs_file_getattr(const char* path, struct stat* st) {
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) return -2;
+    char* perms_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(item, "attributes"), "permissions"));
+    int perms_int;
+    sscanf(perms_str, "%o", &perms_int);
+    if (perms_int == EOF) return -2;
 
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
-        st->st_mode = S_IFDIR | 0755; // TODO: add permissions
+        st->st_mode = S_IFDIR | perms_int; // TODO: add permissions
         st->st_nlink = 2;
         st->st_size = 4096;
         return 0;
     }
-
-    st->st_mode = S_IFREG | 0644; // TODO: add permissions
+    st->st_mode = S_IFREG | perms_int; // TODO: add permissions
     st->st_nlink = 2;
     st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
     // TODO: access, modification and creation dates
@@ -252,7 +255,12 @@ bool ewsfs_fact_validate(cJSON* root) {
 
 bool ewsfs_fact_validate_attributes(cJSON* item) {
     cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
-    static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed"};
+    static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed", "permissions"};
+    typedef enum {
+        ATTRIBUTE_TYPE_NUMBER,
+        ATTRIBUTE_TYPE_STRING,
+    } attribute_types_t;
+    static const attribute_types_t attribute_types[] = {ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_STRING};
     if (!cJSON_IsObject(attributes)) {
         // We don't want to throw an error when all of the attributes are missing,
         // just use the default values if that's the case.
@@ -261,15 +269,37 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
             cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
         
         attributes = cJSON_CreateObject();
-        for (size_t i = 0; i > ARRAY_LEN(attribute_names); ++i) {
-            cJSON* attr = cJSON_CreateNumber(0);
+        for (size_t i = 0; i < ARRAY_LEN(attribute_names); ++i) {
+            cJSON* attr = NULL;
+            switch (attribute_types[i]) {
+                case ATTRIBUTE_TYPE_NUMBER:
+                    attr = cJSON_CreateNumber(0);
+                    break;
+                case ATTRIBUTE_TYPE_STRING:
+                    if (strcmp(attribute_names[i], "permissions") == 0)
+                        attr = cJSON_CreateString("755");
+                    else
+                        attr = cJSON_CreateString("");
+                    break;
+            }
             cJSON_AddItemToObject(attributes, attribute_names[i], attr);
         }
         cJSON_AddItemToObject(item, "attributes", attributes);
     } else {
         for (size_t i = 0; i < ARRAY_LEN(attribute_names); ++i) {
-            if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_names[i]))) {
-                nob_log(ERROR, "Attribute %s of item %s is not a valid number.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
+            const char* attribute_name = attribute_names[i];
+            cJSON_bool is_correct_type = false;
+            switch (attribute_types[i]) {
+                case ATTRIBUTE_TYPE_NUMBER:
+                    is_correct_type = cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_name));
+                    break;
+                case ATTRIBUTE_TYPE_STRING:
+                    is_correct_type = cJSON_IsString(cJSON_GetObjectItemCaseSensitive(attributes, attribute_name));
+                    break;
+            }
+            
+            if (!is_correct_type) {
+                nob_log(ERROR, "Attribute %s of item %s is not of a valid type.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
                 return false;
             }
         }
