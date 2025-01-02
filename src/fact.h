@@ -13,9 +13,11 @@ typedef struct {
     size_t capacity;
 } ewsfs_fact_buffer_t;
 
+int ewsfs_fact_file_truncate(off_t length);
 int ewsfs_fact_file_read(char* buffer, size_t size, off_t offset);
 int ewsfs_fact_file_write(const char* buffer, size_t size, off_t offset);
 int ewsfs_fact_file_flush(FILE* file);
+long ewsfs_fact_file_size();
 
 cJSON* ewsfs_file_get_item(const char* path);
 int ewsfs_file_getattr(const char* path, struct stat* st);

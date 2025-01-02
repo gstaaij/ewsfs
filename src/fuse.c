@@ -28,7 +28,7 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         // It's the FACT file
         st->st_mode = S_IFREG | 0644;
         st->st_nlink = 2;
-        st->st_size = 6009; // TODO
+        st->st_size = ewsfs_fact_file_size();
     } else {
         int result = ewsfs_file_getattr(path, st);
         if (result != 0) return result;
@@ -73,13 +73,7 @@ static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
 
 static int ewsfs_truncate(const char* path, off_t length) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
-        long sizediff = length - ewsfs_filecontents.count;
-        for (long i = 0; i < sizediff; ++i) {
-            da_append(&ewsfs_filecontents, '\0');
-        }
-        ewsfs_filecontents.count = length;
-        // sb_append_cstr(&ewsfs_filecontents, nob_temp_sprintf("\ntruncate{offset: %ld}", length));
-        return 0;
+        return ewsfs_fact_file_truncate(length);
     }
     return -1;
 }

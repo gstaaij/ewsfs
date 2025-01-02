@@ -94,6 +94,15 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
     return true;
 }
 
+int ewsfs_fact_file_truncate(off_t length) {
+    long sizediff = length - fact_file_buffer.count;
+    for (long i = 0; i < sizediff; ++i) {
+        da_append(&fact_file_buffer, '\0');
+    }
+    fact_file_buffer.count = length;
+    return 0;
+}
+
 int ewsfs_fact_file_read(char* buffer, size_t size, off_t offset) {
     size_t bytecount = 0;
     for (size_t i = offset; i < offset + size && i < fact_current_file_on_disk.count; ++i) {
@@ -130,6 +139,10 @@ int ewsfs_fact_file_flush(FILE* file) {
     cJSON_free(fact_root);
     fact_root = new_root;
     return 0;
+}
+
+long ewsfs_fact_file_size() {
+    return fact_current_file_on_disk.count;
 }
 
 cJSON* ewsfs_file_get_item(const char* path) {
