@@ -132,12 +132,13 @@ int ewsfs_fact_file_flush(FILE* file) {
     return 0;
 }
 
-int ewsfs_file_getattr(const char* path, struct stat* st) {
+cJSON* ewsfs_file_get_item(const char* path) {
     String_View sv_path = sv_from_cstr(path);
-    if (sv_path.count < 2) return -2;
-    if (sv_path.data[0] != '/') return -2;
+    if (sv_path.count < 2) return NULL;
+    if (sv_path.data[0] != '/') return NULL;
 
     cJSON* current_dir_contents = cJSON_GetObjectItemCaseSensitive(fact_root, "contents");
+    cJSON* item = NULL;
 
     String_View name;
     // Traverse the directory structure
@@ -145,10 +146,9 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
         name = sv_chop_by_delim(&sv_path, '/');
         // This skips the initial delimiter and also any potential double delimiters or a delimiter at the end
         if (name.count == 0) continue;
-        
+
         // Go over all of the items in the `contents` array
         bool found = false;
-        cJSON* item = NULL;
         cJSON_ArrayForEach(item, current_dir_contents) {
             const char* name_json_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name"));
             String_View name_json = sv_from_cstr(name_json_str);
@@ -166,26 +166,33 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
 
                 // If the directory structure wasn't fully traversed,
                 // this wasn't the file the user was looking for.
-                if (sv_path.count != 0) return -2;
+                if (sv_path.count != 0) return NULL;
 
-
-                st->st_mode = S_IFREG | 0644; // TODO: add permissions
-                st->st_nlink = 2;
-                st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
-                // TODO: access, modification and creation dates
-
-                return 0;
+                return item;
             }
         }
 
-        if (!found) return -2; // We couldn't find the file, so return an error
+        if (!found) return NULL; // We couldn't find the file, so return NULL
     }
 
-    // We traversed the whole path and didn't find a file.
-    // This means we found a directory!
-    st->st_mode = S_IFDIR | 0755; // TODO: add permissions
+    return item;
+}
+
+int ewsfs_file_getattr(const char* path, struct stat* st) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item) return -2;
+
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        st->st_mode = S_IFDIR | 0755; // TODO: add permissions
+        st->st_nlink = 2;
+        st->st_size = 4096;
+        return 0;
+    }
+
+    st->st_mode = S_IFREG | 0644; // TODO: add permissions
     st->st_nlink = 2;
-    st->st_size = 4096;
+    st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
+    // TODO: access, modification and creation dates
     return 0;
 }
 
