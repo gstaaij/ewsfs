@@ -45,12 +45,24 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     (void) fi;
     filler(buffer, ".", NULL, 0);
     filler(buffer, "..", NULL, 0);
+
     if (strcmp(path, "/") == 0) {
         filler(buffer, EWSFS_FACT_FILE, NULL, 0);
-        filler(buffer, "dir", NULL, 0);
-    } else if (strcmp(path, "/dir") == 0) {
-        filler(buffer, "file.txt", NULL, 0);
     }
+
+    cJSON* dir = ewsfs_file_get_item(path);
+    if (dir == NULL) return -2;
+    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+        return -2;
+    }
+    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
+
+    cJSON* dir_item = NULL;
+    cJSON_ArrayForEach(dir_item, dir_contents) {
+        const char* name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(dir_item, "name"));
+        filler(buffer, name, NULL, 0);
+    }
+
     return 0;
 }
 

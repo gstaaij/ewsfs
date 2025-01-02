@@ -147,8 +147,9 @@ long ewsfs_fact_file_size() {
 
 cJSON* ewsfs_file_get_item(const char* path) {
     String_View sv_path = sv_from_cstr(path);
-    if (sv_path.count < 2) return NULL;
+    if (sv_path.count < 1) return NULL;
     if (sv_path.data[0] != '/') return NULL;
+    if (sv_path.count == 1) return fact_root;
 
     cJSON* current_dir_contents = cJSON_GetObjectItemCaseSensitive(fact_root, "contents");
     cJSON* item = NULL;
