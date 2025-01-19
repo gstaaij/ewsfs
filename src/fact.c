@@ -11,6 +11,7 @@ ewsfs_block_index_list_t fact_block_indexes = {0};
 cJSON* fact_root;
 ewsfs_fact_buffer_t fact_current_file_on_disk = {0};
 ewsfs_fact_buffer_t fact_file_buffer = {0};
+static FILE* fsfile;
 
 bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
     uint8_t temp_buffer[EWSFS_BLOCK_SIZE];
@@ -149,10 +150,10 @@ long ewsfs_fact_file_size() {
 typedef struct {
     cJSON* item;
     int flags;
-} file_descriptor_t;
+} file_handle_t;
 
-#define MAX_FILE_DESCRIPTORS 1024
-static file_descriptor_t file_handles[MAX_FILE_DESCRIPTORS];
+#define MAX_FILE_HANDLES 1024
+static file_handle_t file_handles[MAX_FILE_HANDLES];
 
 cJSON* ewsfs_file_get_item(const char* path) {
     String_View sv_path = sv_from_cstr(path);
@@ -227,7 +228,7 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     if (!item) return -ENOENT;
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
     
-    for (uint64_t i = 0; i < MAX_FILE_DESCRIPTORS; ++i) {
+    for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
         if (!file_handles[i].item) {
             fi->fh = i;
             file_handles[i].item = item;
@@ -236,6 +237,57 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
         }
     }
     return -EMFILE;
+}
+
+int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
+    if (fi->fh >= MAX_FILE_HANDLES)
+        return -EBADF;
+    const file_handle_t file_handle = file_handles[fi->fh];
+    if (file_handle.flags & O_WRONLY)
+        return -EINVAL;
+    
+    size_t file_size = (size_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size"));
+    size_t read_size = 0;
+
+    off_t blocks_skip = offset / ewsfs_block_get_size();
+    off_t skip_amount = 0;
+
+    char temp_buffer[ewsfs_block_get_size()];
+
+    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
+    cJSON* alloc_item = NULL;
+    bool done = false;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
+        uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+
+        for (uint64_t i = from; i < from + length; ++i) {
+            if (blocks_skip > 0) {
+                --blocks_skip;
+                skip_amount += ewsfs_block_get_size();
+                continue;
+            }
+
+            ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
+            off_t local_offset = 0;
+            if (skip_amount < offset) {
+                local_offset = offset - skip_amount;
+                skip_amount += local_offset;
+            }
+            for (size_t j = local_offset; j < ewsfs_block_get_size(); ++j) {
+                done = read_size >= size || offset + read_size >= file_size;
+                if (done)
+                    break;
+                buffer[read_size] = temp_buffer[j];
+                ++read_size;
+            }
+            if (done)
+                break;
+        }
+        if (done)
+            break;
+    }
+    return read_size;
 }
 
 
@@ -257,6 +309,8 @@ bool ewsfs_fact_init(FILE* file) {
 #ifdef DEBUG
     printf("%s", cJSON_Print(fact_root));
 #endif
+
+    fsfile = file;
 
     return true;
 }

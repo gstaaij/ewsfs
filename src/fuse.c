@@ -66,15 +66,13 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
 }
 
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_read(buffer, size, offset);
     }
-    return -1;
+    return ewsfs_file_read(buffer, size, offset, fi);
 }
 
 static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
-    (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return 0;
     }
