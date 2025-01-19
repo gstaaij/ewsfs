@@ -78,7 +78,7 @@ static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return 0;
     }
-    return -1;
+    return ewsfs_file_open(path, fi);
 }
 
 static int ewsfs_truncate(const char* path, off_t length) {

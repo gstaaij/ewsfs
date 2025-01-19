@@ -145,6 +145,15 @@ long ewsfs_fact_file_size() {
     return fact_current_file_on_disk.count;
 }
 
+
+typedef struct {
+    cJSON* item;
+    int flags;
+} file_descriptor_t;
+
+#define MAX_FILE_DESCRIPTORS 1024
+static file_descriptor_t file_handles[MAX_FILE_DESCRIPTORS];
+
 cJSON* ewsfs_file_get_item(const char* path) {
     String_View sv_path = sv_from_cstr(path);
     if (sv_path.count < 1) return NULL;
@@ -212,6 +221,23 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     // TODO: access, modification and creation dates
     return 0;
 }
+
+int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item) return -ENOENT;
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
+    
+    for (uint64_t i = 0; i < MAX_FILE_DESCRIPTORS; ++i) {
+        if (!file_handles[i].item) {
+            fi->fh = i;
+            file_handles[i].item = item;
+            file_handles[i].flags = fi->flags;
+            return 0;
+        }
+    }
+    return -EMFILE;
+}
+
 
 bool ewsfs_fact_init(FILE* file) {
     fact_file_buffer.count = 0;
