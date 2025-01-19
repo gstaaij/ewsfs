@@ -194,19 +194,19 @@ cJSON* ewsfs_file_get_item(const char* path) {
 
 int ewsfs_file_getattr(const char* path, struct stat* st) {
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item) return -2;
+    if (!item) return -ENOENT;
     char* perms_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(item, "attributes"), "permissions"));
     int perms_int;
     sscanf(perms_str, "%o", &perms_int);
-    if (perms_int == EOF) return -2;
+    if (perms_int == EOF) return -ENOENT;
 
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
-        st->st_mode = S_IFDIR | perms_int; // TODO: add permissions
+        st->st_mode = S_IFDIR | perms_int;
         st->st_nlink = 2;
         st->st_size = 4096;
         return 0;
     }
-    st->st_mode = S_IFREG | perms_int; // TODO: add permissions
+    st->st_mode = S_IFREG | perms_int; // TODO: make permissions writable
     st->st_nlink = 2;
     st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
     // TODO: access, modification and creation dates

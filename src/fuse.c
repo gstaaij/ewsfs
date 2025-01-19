@@ -40,7 +40,6 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
 }
 
 static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi) {
-    (void) path;
     (void) offset;
     (void) fi;
     filler(buffer, ".", NULL, 0);
@@ -51,9 +50,9 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     }
 
     cJSON* dir = ewsfs_file_get_item(path);
-    if (dir == NULL) return -2;
+    if (dir == NULL) return -ENOENT;
     if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
-        return -2;
+        return -ENOENT;
     }
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
 
@@ -67,7 +66,6 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
 }
 
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    (void) offset;
     (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_read(buffer, size, offset);
