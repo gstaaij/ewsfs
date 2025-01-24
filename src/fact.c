@@ -25,6 +25,7 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
         
         // Get the next block index
         current_block_index = 0;
+        // TODO: FACT_END_ADDRESS_SIZE was probably meant to be in bytes
         for (int i = 0; i < FACT_END_ADDRESS_SIZE; ++i) {
             int buffer_index = EWSFS_BLOCK_SIZE - i - 1;
             current_block_index |= temp_buffer[buffer_index] << i;
