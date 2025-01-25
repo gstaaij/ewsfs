@@ -83,11 +83,11 @@ static int ewsfs_truncate(const char* path, off_t length) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_truncate(length);
     }
-    return -1;
+    // TODO: implement truncate
+    return 0;
 }
 
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_write(buffer, size, offset);
     }
@@ -95,13 +95,19 @@ static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t 
 }
 
 static int ewsfs_flush(const char* path, struct fuse_file_info* fi) {
-    (void) fi;
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         int result = ewsfs_fact_file_flush(fsfile);
         fflush(fsfile);
         return result;
     }
-    return -1;
+    return ewsfs_file_flush(fi);
+}
+
+static int ewsfs_release(const char* path, struct fuse_file_info* fi) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return 0;
+    }
+    return ewsfs_file_release(fi);
 }
 
 static void ewsfs_destroy() {
@@ -118,6 +124,7 @@ static struct fuse_operations ewsfs_ops = {
     .truncate = ewsfs_truncate,
     .write = ewsfs_write,
     .flush = ewsfs_flush,
+    .release = ewsfs_release,
     .destroy = ewsfs_destroy,
 };
 

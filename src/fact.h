@@ -26,6 +26,8 @@ int ewsfs_file_getattr(const char* path, struct stat* st);
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi);
 int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
 int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
+int ewsfs_file_flush(struct fuse_file_info* fi);
+int ewsfs_file_release(struct fuse_file_info* fi);
 
 
 bool ewsfs_fact_init(FILE* file);

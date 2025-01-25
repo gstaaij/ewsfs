@@ -296,21 +296,65 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
 int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     if (fi->fh >= MAX_FILE_HANDLES)
         return -EBADF;
+    file_handle_t* file_handle = &file_handles[fi->fh];
+    if (file_handle->flags & O_RDONLY)
+        return -EBADF;
+    
+    size_t write_size = 0;
+    for (size_t i = offset; i < offset + size; ++i) {
+        if (write_size < file_handle->buffer.count)
+            file_handle->buffer.items[i] = buffer[i - offset];
+        else
+            da_append(&file_handle->buffer, buffer[i - offset]);
+        ++write_size;
+    }
+    return write_size;
+}
+
+int ewsfs_file_flush(struct fuse_file_info* fi) {
+    if (fi->fh >= MAX_FILE_HANDLES)
+        return -EBADF;
     file_handle_t file_handle = file_handles[fi->fh];
     if (file_handle.flags & O_RDONLY)
         return -EBADF;
     
-    size_t read_size = 0;
-    for (size_t i = offset; i < offset + size; ++i) {
-        if (i >= file_handle.buffer.count)
+    uint8_t temp_buffer[ewsfs_block_get_size()];
+    size_t write_size = 0;
+
+    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
+    cJSON* alloc_item = NULL;
+    bool done = false;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
+        uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+
+        for (uint64_t i = from; i < from + length; ++i) {
+            for (size_t j = 0; j < ewsfs_block_get_size(); ++j) {
+                done = write_size >= file_handle.buffer.count;
+                if (done) {
+                    temp_buffer[j] = 0;
+                    continue;
+                }
+                temp_buffer[j] = file_handle.buffer.items[write_size];
+                ++write_size;
+            }
+            ewsfs_block_write(fsfile, i, temp_buffer);
+            if (done)
+                break;
+        }
+        if (done)
             break;
-        if (read_size < file_handle.buffer.count)
-            file_handle.buffer.items[i] = buffer[i - offset];
-        else
-            da_append(&file_handle.buffer, buffer[i - offset]);
-        ++read_size;
     }
-    return read_size;
+    return 0;
+}
+
+int ewsfs_file_release(struct fuse_file_info* fi) {
+    if (fi->fh >= MAX_FILE_HANDLES)
+        return -EBADF;
+    file_handle_t file_handle = file_handles[fi->fh];
+    da_free(file_handle.buffer);
+    file_handles[fi->fh] = (file_handle_t) {0};
+    return 0;
 }
 
 
