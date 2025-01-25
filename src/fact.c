@@ -293,6 +293,26 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
     return read_size;
 }
 
+int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
+    if (fi->fh >= MAX_FILE_HANDLES)
+        return -EBADF;
+    file_handle_t file_handle = file_handles[fi->fh];
+    if (file_handle.flags & O_RDONLY)
+        return -EBADF;
+    
+    size_t read_size = 0;
+    for (size_t i = offset; i < offset + size; ++i) {
+        if (i >= file_handle.buffer.count)
+            break;
+        if (read_size < file_handle.buffer.count)
+            file_handle.buffer.items[i] = buffer[i - offset];
+        else
+            da_append(&file_handle.buffer, buffer[i - offset]);
+        ++read_size;
+    }
+    return read_size;
+}
+
 
 bool ewsfs_fact_init(FILE* file) {
     fact_file_buffer.count = 0;

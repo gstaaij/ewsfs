@@ -91,7 +91,7 @@ static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t 
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_write(buffer, size, offset);
     }
-    return -1;
+    return ewsfs_file_write(buffer, size, offset, fi);
 }
 
 static int ewsfs_flush(const char* path, struct fuse_file_info* fi) {
