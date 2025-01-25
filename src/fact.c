@@ -150,6 +150,7 @@ long ewsfs_fact_file_size() {
 
 typedef struct {
     cJSON* item;
+    String_Builder buffer;
     int flags;
 } file_handle_t;
 
@@ -224,6 +225,40 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     return 0;
 }
 
+static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
+    size_t file_size = (size_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle->item, "file_size"));
+    size_t read_size = 0;
+
+    char temp_buffer[ewsfs_block_get_size()];
+
+    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle->item, "allocation");
+    cJSON* alloc_item = NULL;
+    bool done = false;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
+        uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+
+        for (uint64_t i = from; i < from + length; ++i) {
+            ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
+            for (size_t j = 0; j < ewsfs_block_get_size(); ++j) {
+                done = read_size >= file_size;
+                if (done)
+                    break;
+                if (read_size < file_handle->buffer.count)
+                    file_handle->buffer.items[read_size] = temp_buffer[j];
+                else
+                    da_append(&file_handle->buffer, temp_buffer[j]);
+                ++read_size;
+            }
+            if (done)
+                break;
+        }
+        if (done)
+            break;
+    }
+    return read_size;
+}
+
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) return -ENOENT;
@@ -234,6 +269,7 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
             fi->fh = i;
             file_handles[i].item = item;
             file_handles[i].flags = fi->flags;
+            ewsfs_file_read_from_disk(&file_handles[i]);
             return 0;
         }
     }
@@ -245,48 +281,14 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
         return -EBADF;
     const file_handle_t file_handle = file_handles[fi->fh];
     if (file_handle.flags & O_WRONLY)
-        return -EINVAL;
+        return -EBADF;
     
-    size_t file_size = (size_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size"));
     size_t read_size = 0;
-
-    off_t blocks_skip = offset / ewsfs_block_get_size();
-    off_t skip_amount = 0;
-
-    char temp_buffer[ewsfs_block_get_size()];
-
-    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
-    cJSON* alloc_item = NULL;
-    bool done = false;
-    cJSON_ArrayForEach(alloc_item, allocation) {
-        uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
-        uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
-
-        for (uint64_t i = from; i < from + length; ++i) {
-            if (blocks_skip > 0) {
-                --blocks_skip;
-                skip_amount += ewsfs_block_get_size();
-                continue;
-            }
-
-            ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
-            off_t local_offset = 0;
-            if (skip_amount < offset) {
-                local_offset = offset - skip_amount;
-                skip_amount += local_offset;
-            }
-            for (size_t j = local_offset; j < ewsfs_block_get_size(); ++j) {
-                done = read_size >= size || offset + read_size >= file_size;
-                if (done)
-                    break;
-                buffer[read_size] = temp_buffer[j];
-                ++read_size;
-            }
-            if (done)
-                break;
-        }
-        if (done)
+    for (size_t i = offset; i < offset + size; ++i) {
+        if (i >= file_handle.buffer.count)
             break;
+        buffer[i - offset] = file_handle.buffer.items[i];
+        read_size++;
     }
     return read_size;
 }
