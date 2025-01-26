@@ -18,7 +18,7 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
     uint64_t current_block_index = 0;
     do {
         // Read the next block
-        if (!ewsfs_block_read(file, current_block_index, temp_buffer))
+        if (ewsfs_block_read(file, current_block_index, temp_buffer) != 0)
             return false;
         // Add the current block index to the list of used FACT indexes
         da_append(&fact_block_indexes, current_block_index);
@@ -90,7 +90,7 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
         }
 
         // Write current_block to the file
-        if (!ewsfs_block_write(file, current_block_index, current_block))
+        if (ewsfs_block_write(file, current_block_index, current_block) != 0)
             return false;
     }
     return true;
@@ -239,7 +239,9 @@ static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
         uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
 
         for (uint64_t i = from; i < from + length; ++i) {
-            ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
+            int error = ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
+            if (error)
+                return -error;
             for (size_t j = 0; j < ewsfs_block_get_size(); ++j) {
                 done = read_size >= file_size;
                 if (done)
@@ -269,7 +271,9 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
             fi->fh = i;
             file_handles[i].item = item;
             file_handles[i].flags = fi->flags;
-            ewsfs_file_read_from_disk(&file_handles[i]);
+            int error = ewsfs_file_read_from_disk(&file_handles[i]);
+            if (error < 0)
+                return error;
             return 0;
         }
     }
@@ -338,7 +342,9 @@ int ewsfs_file_flush(struct fuse_file_info* fi) {
                 temp_buffer[j] = file_handle.buffer.items[write_size];
                 ++write_size;
             }
-            ewsfs_block_write(fsfile, i, temp_buffer);
+            int error = ewsfs_block_write(fsfile, i, temp_buffer);
+            if (error)
+                return -error;
             if (done)
                 break;
         }

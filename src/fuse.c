@@ -147,7 +147,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ewsfs_block_read_size(fsfile);
+    if (!ewsfs_block_read_size(fsfile))
+        return 3;
     if (!ewsfs_fact_init(fsfile))
         return 2;
 
