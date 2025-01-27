@@ -246,8 +246,9 @@ int ewsfs_file_truncate(const char* path, off_t length) {
     if (!item) return -ENOENT;
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
 
-    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("length: %ld", length));
-    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"), length);
+    cJSON* file_size = cJSON_GetObjectItemCaseSensitive(item, "file_size");
+    cJSON_SetNumberValue(file_size, length);
+    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length: %ld; set length: %lf", length, cJSON_GetNumberValue(file_size)));
     ewsfs_fact_save_to_disk();
     return 0;
 }
