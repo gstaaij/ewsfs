@@ -1,0 +1,1 @@
+echo src/nob.h | cloc --exclude-dir=lib --exclude-list-file=- src
