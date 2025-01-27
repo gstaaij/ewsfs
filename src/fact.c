@@ -147,6 +147,22 @@ long ewsfs_fact_file_size() {
     return fact_current_file_on_disk.count;
 }
 
+void ewsfs_fact_save_to_disk() {
+    assert(ewsfs_fact_validate(fact_root));
+
+    const char* printed_json = cJSON_Print(fact_root);
+
+    fact_file_buffer.count = 0;
+    sb_append_cstr(&fact_file_buffer, printed_json);
+
+    assert(ewsfs_fact_write_to_image(fsfile, fact_file_buffer));
+
+    fact_current_file_on_disk.count = 0;
+    da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
+
+    fflush(fsfile);
+}
+
 
 typedef struct {
     cJSON* item;
@@ -222,6 +238,17 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     st->st_nlink = 2;
     st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
     // TODO: access, modification and creation dates
+    return 0;
+}
+
+int ewsfs_file_truncate(const char* path, off_t length) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item) return -ENOENT;
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
+
+    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("length: %ld", length));
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"), length);
+    ewsfs_fact_save_to_disk();
     return 0;
 }
 
@@ -351,6 +378,10 @@ int ewsfs_file_flush(struct fuse_file_info* fi) {
         if (done)
             break;
     }
+
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size"), write_size);
+    ewsfs_fact_save_to_disk();
+
     return 0;
 }
 
@@ -358,6 +389,8 @@ int ewsfs_file_release(struct fuse_file_info* fi) {
     if (fi->fh >= MAX_FILE_HANDLES)
         return -EBADF;
     file_handle_t file_handle = file_handles[fi->fh];
+    if (!file_handle.item)
+        return -EBADF;
     da_free(file_handle.buffer);
     file_handles[fi->fh] = (file_handle_t) {0};
     return 0;

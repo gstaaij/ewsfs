@@ -83,8 +83,8 @@ static int ewsfs_truncate(const char* path, off_t length) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_truncate(length);
     }
-    // TODO: implement truncate
-    return 0;
+    length = 20;
+    return ewsfs_file_truncate(path, length);
 }
 
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
