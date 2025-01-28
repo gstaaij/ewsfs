@@ -72,6 +72,13 @@ static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset,
     return ewsfs_file_read(buffer, size, offset, fi);
 }
 
+static int ewsfs_mknod(const char* path, mode_t mode, dev_t dev) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return -EEXIST;
+    }
+    return ewsfs_file_mknod(path, mode, dev);
+}
+
 static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return 0;
@@ -120,6 +127,7 @@ static struct fuse_operations ewsfs_ops = {
     .readdir = ewsfs_readdir,
     .read = ewsfs_read,
     .open = ewsfs_open,
+    .mknod = ewsfs_mknod,
     .truncate = ewsfs_truncate,
     .write = ewsfs_write,
     .flush = ewsfs_flush,

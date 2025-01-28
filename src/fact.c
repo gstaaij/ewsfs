@@ -347,9 +347,62 @@ defer:
     return result;
 }
 
+int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
+    if (!(mode & S_IFREG))
+        return -EINVAL;
+    (void) dev;
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item) {
+        String_View sv_path = sv_from_cstr(path);
+        size_t i = sv_path.count - 1;
+        while (i != 0 && sv_path.data[i] != '/')
+            --i;
+        if (i == sv_path.count - 1)
+            return -EISDIR;
+        
+        String_Builder sb_path_dir = {0};
+        da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+        sb_append_null(&sb_path_dir);
+
+        String_Builder sb_path_basename = {0};
+        da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
+        sb_append_null(&sb_path_basename);
+        
+        cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
+        if (!dir)
+            return -ENOENT;
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return -ENOTDIR;
+        
+        item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "name", sb_path_basename.items);
+        cJSON_AddBoolToObject(item, "is_dir", false);
+        cJSON_AddNumberToObject(item, "file_size", 0.0);
+        // We don't need to add attributes, as they're added during validation if they're missing
+        cJSON_AddArrayToObject(item, "allocation");
+
+        cJSON_AddItemToArray(cJSON_GetObjectItemCaseSensitive(dir, "contents"), item);
+
+        ewsfs_fact_save_to_disk();
+
+        return 0;
+    }
+    return -EEXIST;
+}
+
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item) return -ENOENT;
+    if (!item) {
+        if (!(fi->flags & O_CREAT))
+            return -ENOENT;
+
+        int error = ewsfs_file_mknod(path, S_IFREG, 0);
+        if (error)
+            return error;
+
+        item = ewsfs_file_get_item(path);
+    } else if (fi->flags & O_CREAT && fi->flags & O_EXCL) {
+        return -EEXIST;
+    }
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
     
     for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
