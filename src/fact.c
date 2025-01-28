@@ -5,7 +5,7 @@
 #include <fuse.h>
 #include <string.h>
 
-#define FACT_END_ADDRESS_SIZE 4
+#define FACT_END_ADDRESS_SIZE 8
 
 ewsfs_block_index_list_t fact_block_indexes = {0};
 cJSON* fact_root;
@@ -26,13 +26,13 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
         // Get the next block index
         current_block_index = 0;
         // TODO: FACT_END_ADDRESS_SIZE was probably meant to be in bytes
-        for (int i = 0; i < FACT_END_ADDRESS_SIZE; ++i) {
+        for (int i = 0; i < FACT_END_ADDRESS_SIZE*8; ++i) {
             int buffer_index = EWSFS_BLOCK_SIZE - i - 1;
             current_block_index |= temp_buffer[buffer_index] << i;
         }
 
         // We need to trim off at least the address at the end of the block
-        int end_trim = FACT_END_ADDRESS_SIZE;
+        int end_trim = FACT_END_ADDRESS_SIZE*8;
         // If this is the last FACT block, trim off the trailing zeroes as well
         if (current_block_index == 0) {
             int i = EWSFS_BLOCK_SIZE - end_trim - 1;
@@ -51,7 +51,7 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
 
 // Always call this function AFTER reading the FACT at least once
 bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
-    uint64_t fact_size_per_block = EWSFS_BLOCK_SIZE - FACT_END_ADDRESS_SIZE;
+    uint64_t fact_size_per_block = EWSFS_BLOCK_SIZE - FACT_END_ADDRESS_SIZE*8;
     double amount_of_blocks_double = buffer.count / (double) fact_size_per_block;
     // Ceil the amount_of_blocks_double value
     size_t amount_of_blocks = amount_of_blocks_double > (size_t) amount_of_blocks_double ? (size_t) amount_of_blocks_double + 1 : (size_t) amount_of_blocks_double;
@@ -83,7 +83,7 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
         // If this is not the last block, we'll also need to insert the block index at the end of current_block
         if (!is_last_block) {
             uint64_t next_block_index = fact_block_indexes.items[i + 1];
-            for (int j = 0; j < FACT_END_ADDRESS_SIZE; ++j) {
+            for (int j = 0; j < FACT_END_ADDRESS_SIZE*8; ++j) {
                 int buffer_index = EWSFS_BLOCK_SIZE - j - 1;
                 current_block[buffer_index] = (uint8_t) (next_block_index >> j);
             }
