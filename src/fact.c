@@ -441,7 +441,7 @@ bool ewsfs_fact_init(FILE* file) {
     if (!ewsfs_fact_validate(fact_root))
         return false;
 #ifdef DEBUG
-    printf("%s", cJSON_Print(fact_root));
+    printf("%s\n", cJSON_Print(fact_root));
 #endif
 
     fsfile = file;
