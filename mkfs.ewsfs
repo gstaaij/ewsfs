@@ -57,9 +57,10 @@ def main(argv) -> int:
         if (add_debug_tree):
             f.write(b'{"name": "dir","is_dir": true,"contents": [{"name": "file.txt","is_dir": false,"file_size": 0,"attributes": {"date_created": 1719480000,"date_modified": 1719480000,"date_accessed": 1719480000, "permissions": "644"},"allocation": []}]}')
         f.write(b']}')
-        f.write(bytes(4096 - f.tell()))
+        f.write(bytes((4096 + 8) - f.tell()))
         if not quick_format:
-            f.write(bytes(file_size - f.tell()))
+            for _ in range(1, fs_size_blocks):
+                f.write(bytes(4096))
 
     return 0
 
