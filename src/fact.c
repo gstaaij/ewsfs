@@ -507,7 +507,7 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
     
     size_t write_size = 0;
     for (size_t i = offset; i < offset + size; ++i) {
-        if (write_size < file_handle->buffer.count)
+        if (i < file_handle->buffer.count)
             file_handle->buffer.items[i] = buffer[i - offset];
         else
             da_append(&file_handle->buffer, buffer[i - offset]);
@@ -523,8 +523,9 @@ int ewsfs_file_flush(struct fuse_file_info* fi) {
     if (file_handle.flags & O_RDONLY)
         return -EBADF;
     
-    ewsfs_file_write_to_disk(&file_handle);
-
+    int error = ewsfs_file_write_to_disk(&file_handle);
+    if (error < 0)
+        return error;
     return 0;
 }
 
