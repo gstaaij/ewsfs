@@ -364,6 +364,23 @@ int ewsfs_file_truncate(const char* path, off_t length) {
     error = ewsfs_file_write_to_disk(&file_handle);
     if (error < 0)
         return_defer(error);
+
+    // Remove unnecessary alloc items
+    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
+    cJSON* alloc_item = NULL;
+    uint64_t alloc_count = 0;
+    int delete_from = 0;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        if (alloc_count * ewsfs_block_get_size() >= (uint64_t) file_handle.buffer.count) {
+            break;
+        }
+        alloc_count += (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+        ++delete_from;
+    }
+    for (int i = cJSON_GetArraySize(allocation) - 1; i >= delete_from; --i) {
+        cJSON_DeleteItemFromArray(allocation, i);
+    }
+
     cJSON* file_size = cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size");
     cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length to set: %ld; length returned from ewsfs_file_write_to_disk: %d; length in cJSON: %lf", length, error, cJSON_GetNumberValue(file_size)));
     ewsfs_fact_save_to_disk();
@@ -542,8 +559,6 @@ int ewsfs_file_release(struct fuse_file_info* fi) {
 
 
 bool ewsfs_fact_init(FILE* file) {
-    fact_block_indexes.count = 0;
-    used_block_indexes.count = 0;
     fact_file_buffer.count = 0;
     ewsfs_fact_read_from_image(file, &fact_file_buffer);
 
@@ -575,6 +590,9 @@ void ewsfs_fact_uninit() {
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
+    fact_block_indexes.count = 0;
+    used_block_indexes.count = 0;
+
     cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(root, "filesystem_info");
     if (!cJSON_IsObject(fs_info) ||
         !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
