@@ -1,5 +1,7 @@
 #include <sys/stat.h>
 #include <errno.h>
+#define NOB_STRIP_PREFIX
+#include "nob.h"
 #include "block.h"
 
 #define BLOCK_SIZE_RESERVED_BYTES 8
@@ -58,10 +60,10 @@ int ewsfs_block_write(FILE* file, uint64_t block_index, const uint8_t* buffer) {
     return fwrite(buffer, EWSFS_BLOCK_SIZE, 1, file) == 1 ? 0 : EFAULT;
 }
 
-bool ewsfs_block_get_next_free_index(const ewsfs_block_index_list_t used_block_indexes, uint64_t* next_free_index) {
+bool ewsfs_block_get_next_free_index(ewsfs_block_index_list_t* used_block_indexes, uint64_t* next_free_index) {
     uint64_t index = 0;
-    for (size_t i = 0; i < used_block_indexes.count; ++i) {
-        if (index == used_block_indexes.items[i]) {
+    for (size_t i = 0; i < used_block_indexes->count; ++i) {
+        if (index == used_block_indexes->items[i]) {
             ++index;
             // If used_block_indexes is out of order (e.g. [0, 1, 3, 2, 4]), we don't want to accidentaly
             // use an index that is actually already in use (in the example, 3 would be chosen because
@@ -73,5 +75,6 @@ bool ewsfs_block_get_next_free_index(const ewsfs_block_index_list_t used_block_i
     if (index >= ewsfs_block_count)
         return false;
     *next_free_index = index;
+    da_append(used_block_indexes, index);
     return true;
 }

@@ -8,6 +8,7 @@
 #define FACT_END_ADDRESS_SIZE 8
 
 ewsfs_block_index_list_t fact_block_indexes = {0};
+ewsfs_block_index_list_t used_block_indexes = {0};
 cJSON* fact_root;
 ewsfs_fact_buffer_t fact_current_file_on_disk = {0};
 ewsfs_fact_buffer_t fact_file_buffer = {0};
@@ -20,12 +21,12 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
         // Read the next block
         if (ewsfs_block_read(file, current_block_index, temp_buffer) != 0)
             return false;
-        // Add the current block index to the list of used FACT indexes
+        // Add the current block index to the lists of used indexes
         da_append(&fact_block_indexes, current_block_index);
+        da_append(&used_block_indexes, current_block_index);
         
         // Get the next block index
         current_block_index = 0;
-        // TODO: FACT_END_ADDRESS_SIZE was probably meant to be in bytes
         for (int i = 0; i < FACT_END_ADDRESS_SIZE*8; ++i) {
             int buffer_index = EWSFS_BLOCK_SIZE - i - 1;
             current_block_index |= temp_buffer[buffer_index] << i;
@@ -65,7 +66,7 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
             ( is_last_block && i     >= fact_block_indexes.count)
         ) {
             uint64_t new_block_index = 0;
-            if (!ewsfs_block_get_next_free_index(fact_block_indexes, &new_block_index))
+            if (!ewsfs_block_get_next_free_index(&used_block_indexes, &new_block_index))
                 return false;
             da_append(&fact_block_indexes, new_block_index);
         }
@@ -283,6 +284,29 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
 
     cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle->item, "allocation");
     cJSON* alloc_item = NULL;
+
+    // Add necessary alloc items
+    uint64_t alloc_count = 0;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        alloc_count += (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+    }
+    bool should_write_fact = false;
+    while (alloc_count * ewsfs_block_get_size() < file_handle->buffer.count) {
+        should_write_fact = true;
+        alloc_item = cJSON_CreateObject();
+        uint64_t new_block_index = 0;
+        if (!ewsfs_block_get_next_free_index(&used_block_indexes, &new_block_index))
+            return -ENOSPC;
+        cJSON_AddNumberToObject(alloc_item, "from", (double) new_block_index);
+        // TODO: use length properly
+        cJSON_AddNumberToObject(alloc_item, "length", 1.0);
+
+        cJSON_AddItemToArray(allocation, alloc_item);
+        ++alloc_count;
+    }
+    if (should_write_fact)
+        ewsfs_fact_save_to_disk();
+
     bool done = false;
     cJSON_ArrayForEach(alloc_item, allocation) {
         uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
@@ -517,6 +541,8 @@ int ewsfs_file_release(struct fuse_file_info* fi) {
 
 
 bool ewsfs_fact_init(FILE* file) {
+    fact_block_indexes.count = 0;
+    used_block_indexes.count = 0;
     fact_file_buffer.count = 0;
     ewsfs_fact_read_from_image(file, &fact_file_buffer);
 
@@ -544,6 +570,7 @@ void ewsfs_fact_uninit() {
     if (fact_root)
         cJSON_Delete(fact_root);
     da_free(fact_block_indexes);
+    da_free(used_block_indexes);
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
@@ -632,6 +659,13 @@ bool ewsfs_fact_validate_file(cJSON* file) {
             nob_log(ERROR, "`length` field of allocation at index %zu of file %s is not a valid number", index, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
             return false;
         }
+
+        uint64_t from = cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc, "from"));
+        uint64_t length = cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc, "length"));
+        for (uint64_t i = from; i < from + length; ++i) {
+            da_append(&used_block_indexes, i);
+        }
+
         index++;
     }
 
