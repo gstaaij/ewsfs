@@ -255,7 +255,7 @@ static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
         uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
 
         for (uint64_t i = from; i < from + length; ++i) {
-            int error = ewsfs_block_read(fsfile, from, (uint8_t*) temp_buffer);
+            int error = ewsfs_block_read(fsfile, i, (uint8_t*) temp_buffer);
             if (error)
                 return -error;
             for (size_t j = 0; j < ewsfs_block_get_size(); ++j) {
@@ -342,6 +342,7 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         return_defer(error);
     cJSON* file_size = cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size");
     cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length to set: %ld; length returned from ewsfs_file_write_to_disk: %d; length in cJSON: %lf", length, error, cJSON_GetNumberValue(file_size)));
+    ewsfs_fact_save_to_disk();
 defer:
     da_free(file_handle.buffer);
     return result;
