@@ -355,56 +355,6 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
     return write_size;
 }
 
-int ewsfs_file_truncate(const char* path, off_t length) {
-    cJSON* item = ewsfs_file_get_item(path);
-    if (!item) return -ENOENT;
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
-
-    int result = 0;
-
-    // Read the file into a temporary file handle
-    file_handle_t file_handle = {0};
-    file_handle.item = item;
-    int error = ewsfs_file_read_from_disk(&file_handle);
-    if (error < 0)
-        return_defer(error);
-
-    // Truncate the same way as in ewsfs_fact_file_truncate
-    off_t sizediff = length - file_handle.buffer.count;
-    for (off_t i = 0; i < sizediff; ++i) {
-        da_append(&file_handle.buffer, '\0');
-    }
-    file_handle.buffer.count = length;
-
-    // Write the file back to the disk
-    error = ewsfs_file_write_to_disk(&file_handle);
-    if (error < 0)
-        return_defer(error);
-
-    // Remove unnecessary alloc items
-    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
-    cJSON* alloc_item = NULL;
-    uint64_t alloc_count = 0;
-    int delete_from = 0;
-    cJSON_ArrayForEach(alloc_item, allocation) {
-        if (alloc_count * ewsfs_block_get_size() >= (uint64_t) file_handle.buffer.count) {
-            break;
-        }
-        alloc_count += (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
-        ++delete_from;
-    }
-    for (int i = cJSON_GetArraySize(allocation) - 1; i >= delete_from; --i) {
-        cJSON_DeleteItemFromArray(allocation, i);
-    }
-
-    cJSON* file_size = cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size");
-    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length to set: %ld; length returned from ewsfs_file_write_to_disk: %d; length in cJSON: %lf", length, error, cJSON_GetNumberValue(file_size)));
-    ewsfs_fact_save_to_disk();
-defer:
-    da_free(file_handle.buffer);
-    return result;
-}
-
 int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
     if (!(mode & S_IFREG))
         return -EINVAL;
@@ -664,6 +614,56 @@ int ewsfs_file_rmdir(const char* path) {
     return_defer(-ENOENT);
 defer:
     da_free(sb_path_dir);
+    return result;
+}
+
+int ewsfs_file_truncate(const char* path, off_t length) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item) return -ENOENT;
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
+
+    int result = 0;
+
+    // Read the file into a temporary file handle
+    file_handle_t file_handle = {0};
+    file_handle.item = item;
+    int error = ewsfs_file_read_from_disk(&file_handle);
+    if (error < 0)
+        return_defer(error);
+
+    // Truncate the same way as in ewsfs_fact_file_truncate
+    off_t sizediff = length - file_handle.buffer.count;
+    for (off_t i = 0; i < sizediff; ++i) {
+        da_append(&file_handle.buffer, '\0');
+    }
+    file_handle.buffer.count = length;
+
+    // Write the file back to the disk
+    error = ewsfs_file_write_to_disk(&file_handle);
+    if (error < 0)
+        return_defer(error);
+
+    // Remove unnecessary alloc items
+    cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
+    cJSON* alloc_item = NULL;
+    uint64_t alloc_count = 0;
+    int delete_from = 0;
+    cJSON_ArrayForEach(alloc_item, allocation) {
+        if (alloc_count * ewsfs_block_get_size() >= (uint64_t) file_handle.buffer.count) {
+            break;
+        }
+        alloc_count += (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
+        ++delete_from;
+    }
+    for (int i = cJSON_GetArraySize(allocation) - 1; i >= delete_from; --i) {
+        cJSON_DeleteItemFromArray(allocation, i);
+    }
+
+    cJSON* file_size = cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size");
+    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length to set: %ld; length returned from ewsfs_file_write_to_disk: %d; length in cJSON: %lf", length, error, cJSON_GetNumberValue(file_size)));
+    ewsfs_fact_save_to_disk();
+defer:
+    da_free(file_handle.buffer);
     return result;
 }
 
