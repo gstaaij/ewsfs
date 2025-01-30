@@ -1,6 +1,6 @@
 #pragma once
 #include <fuse.h>
-#include <inttypes.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include "lib/cJSON.h"
@@ -23,6 +23,7 @@ long ewsfs_fact_file_size();
 // All other file operations
 cJSON* ewsfs_file_get_item(const char* path);
 int ewsfs_file_getattr(const char* path, struct stat* st);
+int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler);
 int ewsfs_file_truncate(const char* path, off_t length);
 int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev);
 int ewsfs_file_mkdir(const char* path, mode_t mode);

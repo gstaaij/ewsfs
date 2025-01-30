@@ -1,9 +1,8 @@
+#include <string.h>
 #include "fact.h"
 #include "block.h"
 #define NOB_STRIP_PREFIX
 #include "nob.h"
-#include <fuse.h>
-#include <string.h>
 
 #define FACT_END_ADDRESS_SIZE 8
 
@@ -24,7 +23,7 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
         // Add the current block index to the lists of used indexes
         da_append(&fact_block_indexes, current_block_index);
         da_append(&used_block_indexes, current_block_index);
-        
+
         // Get the next block index
         current_block_index = 0;
         for (int i = 0; i < FACT_END_ADDRESS_SIZE*8; ++i) {
@@ -242,6 +241,23 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     return 0;
 }
 
+int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
+    cJSON* dir = ewsfs_file_get_item(path);
+    if (dir == NULL) return -ENOENT;
+    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+        return -ENOENT;
+    }
+    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
+
+    cJSON* dir_item = NULL;
+    cJSON_ArrayForEach(dir_item, dir_contents) {
+        const char* name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(dir_item, "name"));
+        filler(buffer, name, NULL, 0);
+    }
+
+    return 0;
+}
+
 static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
     size_t file_size = (size_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle->item, "file_size"));
     size_t read_size = 0;
@@ -401,7 +417,9 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
             --i;
         if (i == sv_path.count - 1)
             return -EISDIR;
-        
+
+        int result = 0;
+
         String_Builder sb_path_dir = {0};
         da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
         sb_append_null(&sb_path_dir);
@@ -409,12 +427,12 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
         String_Builder sb_path_basename = {0};
         da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
         sb_append_null(&sb_path_basename);
-        
+
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
         if (!dir)
-            return -ENOENT;
-        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return -ENOTDIR;
-        
+            return_defer(-ENOENT);
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+
         item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "name", sb_path_basename.items);
         cJSON_AddBoolToObject(item, "is_dir", false);
@@ -426,7 +444,10 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
 
         ewsfs_fact_save_to_disk();
 
-        return 0;
+    defer:
+        da_free(sb_path_dir);
+        da_free(sb_path_basename);
+        return result;
     }
     return -EEXIST;
 }
@@ -439,7 +460,9 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
         size_t i = sv_path.count - 1;
         while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
             --i;
-        
+
+        int result = 0;
+
         String_Builder sb_path_dir = {0};
         da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
         sb_append_null(&sb_path_dir);
@@ -447,12 +470,12 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
         String_Builder sb_path_basename = {0};
         da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
         sb_append_null(&sb_path_basename);
-        
+
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
         if (!dir)
-            return -ENOENT;
-        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return -ENOTDIR;
-        
+            return_defer(-ENOENT);
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+
         item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "name", sb_path_basename.items);
         cJSON_AddBoolToObject(item, "is_dir", true);
@@ -463,7 +486,10 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
 
         ewsfs_fact_save_to_disk();
 
-        return 0;
+    defer:
+        da_free(sb_path_dir);
+        da_free(sb_path_basename);
+        return result;
     }
     return -EEXIST;
 }
@@ -476,7 +502,9 @@ int ewsfs_file_rmdir(const char* path) {
         return -ENOTDIR;
     if (cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(item, "contents")) > 0)
         return -ENOTEMPTY;
-    
+
+    int result = 0;
+
     String_View sv_path = sv_from_cstr(path);
     size_t i = sv_path.count - 1;
     while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
@@ -488,8 +516,8 @@ int ewsfs_file_rmdir(const char* path) {
 
     cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
     if (!dir)
-        return -ENOENT;
-    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return -ENOTDIR;
+        return_defer(-ENOENT);
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
 
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
     cJSON* dir_item = NULL;
@@ -499,11 +527,14 @@ int ewsfs_file_rmdir(const char* path) {
             cJSON_DeleteItemFromArray(dir_contents, index);
 
             ewsfs_fact_save_to_disk();
-            return 0;
+            return_defer(0);
         }
         ++index;
     }
-    return -ENOENT;
+    return_defer(-ENOENT);
+defer:
+    da_free(sb_path_dir);
+    return result;
 }
 
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
@@ -521,7 +552,7 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
         return -EEXIST;
     }
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
-    
+
     for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
         if (!file_handles[i].item) {
             fi->fh = i;
@@ -542,7 +573,7 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
     const file_handle_t file_handle = file_handles[fi->fh];
     if (file_handle.flags & O_WRONLY)
         return -EBADF;
-    
+
     size_t read_size = 0;
     for (size_t i = offset; i < offset + size; ++i) {
         if (i >= file_handle.buffer.count)
@@ -559,7 +590,7 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
     file_handle_t* file_handle = &file_handles[fi->fh];
     if (file_handle->flags & O_RDONLY)
         return -EBADF;
-    
+
     size_t write_size = 0;
     for (size_t i = offset; i < offset + size; ++i) {
         if (i < file_handle->buffer.count)
@@ -577,7 +608,7 @@ int ewsfs_file_flush(struct fuse_file_info* fi) {
     file_handle_t file_handle = file_handles[fi->fh];
     if (file_handle.flags & O_RDONLY)
         return -EBADF;
-    
+
     int error = ewsfs_file_write_to_disk(&file_handle);
     if (error < 0)
         return error;
@@ -607,7 +638,7 @@ bool ewsfs_fact_init(FILE* file) {
     fact_root = cJSON_ParseWithLength((char*) fact_file_buffer.items, fact_file_buffer.count);
     if (!fact_root)
         return false;
-    
+
 
     if (!ewsfs_fact_validate(fact_root))
         return false;
@@ -625,6 +656,9 @@ void ewsfs_fact_uninit() {
         cJSON_Delete(fact_root);
     da_free(fact_block_indexes);
     da_free(used_block_indexes);
+    for (size_t i = 0; i < MAX_FILE_HANDLES; ++i) {
+        da_free(file_handles[i].buffer);
+    }
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
@@ -656,7 +690,7 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
 
         if (attributes != NULL)
             cJSON_DeleteItemFromObjectCaseSensitive(item, "attributes");
-        
+
         attributes = cJSON_CreateObject();
         for (size_t i = 0; i < ARRAY_LEN(attribute_names); ++i) {
             cJSON* attr = NULL;
@@ -686,7 +720,7 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
                     is_correct_type = cJSON_IsString(cJSON_GetObjectItemCaseSensitive(attributes, attribute_name));
                     break;
             }
-            
+
             if (!is_correct_type) {
                 nob_log(ERROR, "Attribute %s of item %s is not of a valid type.", attribute_names[i], cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item, "name")));
                 return false;
@@ -704,7 +738,7 @@ bool ewsfs_fact_validate_file(cJSON* file) {
         nob_log(ERROR, "File Size of file %s is not a valid number.", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(file, "name")));
         return false;
     }
-    
+
     size_t index = 0;
     cJSON* alloc = NULL;
     cJSON_ArrayForEach(alloc, cJSON_GetObjectItemCaseSensitive(file, "allocation")) {

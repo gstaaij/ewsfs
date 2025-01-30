@@ -1,19 +1,14 @@
 #define FUSE_USE_VERSION 29
 #include <fuse.h>
-#include <inttypes.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 #include "block.h"
 #include "fact.h"
 
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
-
-static String_Builder ewsfs_filecontents = {0};
 
 char* devfile = NULL;
 FILE* fsfile = NULL;
@@ -48,21 +43,7 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     if (strcmp(path, "/") == 0) {
         filler(buffer, EWSFS_FACT_FILE, NULL, 0);
     }
-
-    cJSON* dir = ewsfs_file_get_item(path);
-    if (dir == NULL) return -ENOENT;
-    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
-        return -ENOENT;
-    }
-    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
-
-    cJSON* dir_item = NULL;
-    cJSON_ArrayForEach(dir_item, dir_contents) {
-        const char* name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(dir_item, "name"));
-        filler(buffer, name, NULL, 0);
-    }
-
-    return 0;
+    return ewsfs_file_readdir(path, buffer, filler);
 }
 
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
@@ -132,7 +113,6 @@ static int ewsfs_release(const char* path, struct fuse_file_info* fi) {
 
 static void ewsfs_destroy() {
     ewsfs_fact_uninit();
-    da_free(ewsfs_filecontents);
     fclose(fsfile);
 }
 
@@ -154,7 +134,6 @@ static struct fuse_operations ewsfs_ops = {
 
 int main(int argc, char** argv) {
     int i;
-    sb_append_cstr(&ewsfs_filecontents, "Hello, World!");
 
     // Get the device or image filename from arguments
     for (i = 1; i < argc && argv[i][0] == '-'; ++i);
@@ -174,22 +153,6 @@ int main(int argc, char** argv) {
         return 3;
     if (!ewsfs_fact_init(fsfile))
         return 2;
-
-    // ewsfs_fact_buffer_t buffer = {0};
-    // if (!ewsfs_fact_read_from_image(fsfile, &buffer))
-    //     return 42;
-    
-    // for (size_t i = 0; i < buffer.count; ++i) {
-    //     printf("%c", buffer.items[i]);
-    // }
-    // printf("\n");
-
-    // da_append_many(&buffer, "\nHello, World!", 14);
-    // if (!ewsfs_fact_write_to_image(fsfile, buffer))
-    //     return 43;
-
-    // fclose(fsfile);
-    // return 0;
 
     // leave the rest to FUSE
     return fuse_main(argc, argv, &ewsfs_ops, NULL);
