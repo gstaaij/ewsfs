@@ -86,6 +86,13 @@ static int ewsfs_mkdir(const char* path, mode_t mode) {
     return ewsfs_file_mkdir(path, mode);
 }
 
+static int ewsfs_rmdir(const char* path) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return -ENOTDIR;
+    }
+    return ewsfs_file_rmdir(path);
+}
+
 static int ewsfs_open(const char* path, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return 0;
@@ -136,6 +143,7 @@ static struct fuse_operations ewsfs_ops = {
     .open = ewsfs_open,
     .mknod = ewsfs_mknod,
     .mkdir = ewsfs_mkdir,
+    .rmdir = ewsfs_rmdir,
     .truncate = ewsfs_truncate,
     .write = ewsfs_write,
     .flush = ewsfs_flush,

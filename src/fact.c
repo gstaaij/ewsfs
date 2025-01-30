@@ -468,6 +468,44 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
     return -EEXIST;
 }
 
+int ewsfs_file_rmdir(const char* path) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item)
+        return -ENOENT;
+    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir")))
+        return -ENOTDIR;
+    if (cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(item, "contents")) > 0)
+        return -ENOTEMPTY;
+    
+    String_View sv_path = sv_from_cstr(path);
+    size_t i = sv_path.count - 1;
+    while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
+        --i;
+
+    String_Builder sb_path_dir = {0};
+    da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+    sb_append_null(&sb_path_dir);
+
+    cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
+    if (!dir)
+        return -ENOENT;
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return -ENOTDIR;
+
+    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
+    cJSON* dir_item = NULL;
+    int index = 0;
+    cJSON_ArrayForEach(dir_item, dir_contents) {
+        if (dir_item == item) {
+            cJSON_DeleteItemFromArray(dir_contents, index);
+
+            ewsfs_fact_save_to_disk();
+            return 0;
+        }
+        ++index;
+    }
+    return -ENOENT;
+}
+
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
