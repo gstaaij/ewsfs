@@ -60,6 +60,13 @@ static int ewsfs_mknod(const char* path, mode_t mode, dev_t dev) {
     return ewsfs_file_mknod(path, mode, dev);
 }
 
+static int ewsfs_unlink(const char* path) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return -EPERM;
+    }
+    return ewsfs_file_unlink(path);
+}
+
 static int ewsfs_mkdir(const char* path, mode_t mode) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return -EEXIST;
@@ -122,6 +129,7 @@ static struct fuse_operations ewsfs_ops = {
     .read = ewsfs_read,
     .open = ewsfs_open,
     .mknod = ewsfs_mknod,
+    .unlink = ewsfs_unlink,
     .mkdir = ewsfs_mkdir,
     .rmdir = ewsfs_rmdir,
     .truncate = ewsfs_truncate,
