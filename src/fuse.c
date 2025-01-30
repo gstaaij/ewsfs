@@ -26,6 +26,7 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         st->st_nlink = 2;
         st->st_size = ewsfs_fact_file_size();
     } else {
+        // It's neither of the above, so redirect to `ewsfs_file_*` function
         int result = ewsfs_file_getattr(path, st);
         if (result != 0) return result;
     }
@@ -161,7 +162,7 @@ static struct fuse_operations ewsfs_ops = {
 int main(int argc, char** argv) {
     int i;
 
-    // Get the device or image filename from arguments
+    // Get the device or image filename from the arguments
     for (i = 1; i < argc && argv[i][0] == '-'; ++i);
     if (i < argc) {
         devfile = realpath(argv[i], NULL);
@@ -175,11 +176,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Initialise the block size and the FACT
     if (!ewsfs_block_read_size(fsfile))
         return 3;
     if (!ewsfs_fact_init(fsfile))
         return 2;
 
-    // leave the rest to FUSE
+    // Leave the rest to FUSE
     return fuse_main(argc, argv, &ewsfs_ops, NULL);
 }

@@ -37,7 +37,7 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
 int ewsfs_file_flush(struct fuse_file_info* fi);
 int ewsfs_file_release(struct fuse_file_info* fi);
 
-
+// FACT intialisation and validation functions
 bool ewsfs_fact_init(FILE* file);
 void ewsfs_fact_uninit();
 bool ewsfs_fact_validate(cJSON* root);

@@ -97,8 +97,10 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
 }
 
 int ewsfs_fact_file_truncate(off_t length) {
-    long sizediff = length - fact_file_buffer.count;
-    for (long i = 0; i < sizediff; ++i) {
+    off_t sizediff = length - fact_file_buffer.count;
+    // Add the necessary amount of zero characters to the buffer
+    // If length < fact_file_buffer.count, sizediff is negative, and this for loop is skipped
+    for (off_t i = 0; i < sizediff; ++i) {
         da_append(&fact_file_buffer, '\0');
     }
     fact_file_buffer.count = length;
@@ -138,6 +140,7 @@ int ewsfs_fact_file_flush(FILE* file) {
     fact_current_file_on_disk.count = 0;
     da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
 
+    // We need to free the old cJSON, otherwise the memory will leak
     cJSON_free(fact_root);
     fact_root = new_root;
     return 0;
@@ -148,18 +151,22 @@ long ewsfs_fact_file_size() {
 }
 
 void ewsfs_fact_save_to_disk() {
+    // Make sure the FACT is valid
     assert(ewsfs_fact_validate(fact_root));
 
+    // Print the FACT cJSON structure to a string
     const char* printed_json = cJSON_Print(fact_root);
 
+    // Copy the JSON to the relevant FACT file buffers
     fact_file_buffer.count = 0;
     sb_append_cstr(&fact_file_buffer, printed_json);
-
-    assert(ewsfs_fact_write_to_image(fsfile, fact_file_buffer));
-
     fact_current_file_on_disk.count = 0;
     da_append_many(&fact_current_file_on_disk, fact_file_buffer.items, fact_file_buffer.count);
 
+    // Make sure the JSON is written back properly
+    assert(ewsfs_fact_write_to_image(fsfile, fact_file_buffer));
+
+    // Flush the device or image file, so the changes are pushed to the disk
     fflush(fsfile);
 }
 
@@ -204,12 +211,13 @@ cJSON* ewsfs_file_get_item(const char* path) {
                     break;
                 }
 
-                // ...and if it's a file, we get the attributes to said file and return out of the function
+                // ...and if it's a file, we have reached the end.
 
                 // If the directory structure wasn't fully traversed,
                 // this wasn't the file the user was looking for.
                 if (sv_path.count != 0) return NULL;
 
+                // We are done, so return this file
                 return item;
             }
         }
@@ -217,17 +225,25 @@ cJSON* ewsfs_file_get_item(const char* path) {
         if (!found) return NULL; // We couldn't find the file, so return NULL
     }
 
+    // Return the item (it's a directory in this case)
     return item;
 }
 
 int ewsfs_file_getattr(const char* path, struct stat* st) {
+    // Get the item for this path and fail if it doesn't exist
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item) return -ENOENT;
-    char* perms_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(item, "attributes"), "permissions"));
+    if (!item)
+        return -ENOENT;
+
+    cJSON* item_attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
+
+    // Decode the permission string
+    char* perms_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "permissions"));
     int perms_int;
     sscanf(perms_str, "%o", &perms_int);
     if (perms_int == EOF) return -ENOENT;
 
+    // Set stat fields depending on item type
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
         st->st_mode = S_IFDIR | perms_int;
         st->st_nlink = 2;
@@ -243,25 +259,26 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
 
 int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
     cJSON* dir = ewsfs_file_get_item(path);
-    if (dir == NULL) return -ENOENT;
-    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+    if (!dir)
         return -ENOENT;
-    }
-    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
+    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
+        return -ENOENT;
 
+    cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
     cJSON* dir_item = NULL;
+    // Loop over all the contents and add the items to the buffer using the `filler` callback
     cJSON_ArrayForEach(dir_item, dir_contents) {
         const char* name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(dir_item, "name"));
         filler(buffer, name, NULL, 0);
     }
-
     return 0;
 }
 
 static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
-    size_t file_size = (size_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle->item, "file_size"));
-    size_t read_size = 0;
+    uint64_t file_size = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle->item, "file_size"));
+    uint64_t read_size = 0;
 
+    // A temporary buffer for reading blocks
     char temp_buffer[ewsfs_block_get_size()];
 
     cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle->item, "allocation");
@@ -271,10 +288,13 @@ static int ewsfs_file_read_from_disk(file_handle_t* file_handle) {
         uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
         uint64_t length = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
 
+        // Go over all blocks in this allocation item
         for (uint64_t i = from; i < from + length; ++i) {
+            // Read this block into the temporary buffer
             int error = ewsfs_block_read(fsfile, i, (uint8_t*) temp_buffer);
             if (error)
                 return -error;
+            // Copy the temporary buffer into the file_handle buffer, until file_size is reached
             for (size_t j = 0; j < ewsfs_block_get_size(); ++j) {
                 done = read_size >= file_size;
                 if (done)
@@ -298,10 +318,9 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
     uint8_t temp_buffer[ewsfs_block_get_size()];
     size_t write_size = 0;
 
+    // Add necessary alloc items
     cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle->item, "allocation");
     cJSON* alloc_item = NULL;
-
-    // Add necessary alloc items
     uint64_t alloc_count = 0;
     cJSON_ArrayForEach(alloc_item, allocation) {
         alloc_count += (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "length"));
@@ -323,6 +342,7 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
     if (should_write_fact)
         ewsfs_fact_save_to_disk();
 
+    // Same as in `ewsfs_file_read_from_disk`, but with writing instead
     bool done = false;
     cJSON_ArrayForEach(alloc_item, allocation) {
         uint64_t from = (uint64_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(alloc_item, "from"));
@@ -348,41 +368,46 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
             break;
     }
 
-    // cJSON_DeleteItemFromObjectCaseSensitive(file_handle->item, "file_size");
-    // cJSON_AddNumberToObject(file_handle->item, "file_size", (double) write_size);
+    // Set the new file size based on the amount of bytes written
     cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(file_handle->item, "file_size"), (double) write_size);
+    // Save the FACT to the disk (this also flushes the device or image file)
     ewsfs_fact_save_to_disk();
     return write_size;
 }
 
 int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
+    // We don't support creating anything but normal files as of now
     if (!(mode & S_IFREG))
         return -EINVAL;
     (void) dev;
+
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
-        String_View sv_path = sv_from_cstr(path);
-        size_t i = sv_path.count - 1;
-        while (i != 0 && sv_path.data[i] != '/')
-            --i;
-        if (i == sv_path.count - 1)
-            return -EISDIR;
-
         int result = 0;
 
-        String_Builder sb_path_dir = {0};
-        da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
-        sb_append_null(&sb_path_dir);
-
+        // Extract the directory and basename from the path
+        String_View sv_path = sv_from_cstr(path);
         String_Builder sb_path_basename = {0};
-        da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
-        sb_append_null(&sb_path_basename);
+        String_Builder sb_path_dir = {0}; {
+            size_t i = sv_path.count - 1;
+            while (i != 0 && sv_path.data[i] != '/')
+                --i;
+            if (i == sv_path.count - 1)
+                return_defer(-EISDIR);
+            da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+            sb_append_null(&sb_path_dir);
+
+            da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
+            sb_append_null(&sb_path_basename);
+        }
 
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
         if (!dir)
             return_defer(-ENOENT);
-        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
+            return_defer(-ENOTDIR);
 
+        // Create the new cJSON object for this new file
         item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "name", sb_path_basename.items);
         cJSON_AddBoolToObject(item, "is_dir", false);
@@ -390,11 +415,13 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
         // We don't need to add attributes, as they're added during validation if they're missing
         cJSON_AddArrayToObject(item, "allocation");
 
+        // Add it to the directory's `contents` list
         cJSON_AddItemToArray(cJSON_GetObjectItemCaseSensitive(dir, "contents"), item);
 
         ewsfs_fact_save_to_disk();
 
     defer:
+        // Cleanup
         da_free(sb_path_dir);
         da_free(sb_path_basename);
         return result;
@@ -403,6 +430,7 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
 }
 
 int ewsfs_file_unlink(const char* path) {
+    // Check if the file exists and isn't a directory
     cJSON* item = ewsfs_file_get_item(path);
     if (!item)
         return -ENOENT;
@@ -411,20 +439,23 @@ int ewsfs_file_unlink(const char* path) {
 
     int result = 0;
 
+    // Get the directory path for this file path
     String_View sv_path = sv_from_cstr(path);
-    size_t i = sv_path.count - 1;
-    while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
-        --i;
-
-    String_Builder sb_path_dir = {0};
-    da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
-    sb_append_null(&sb_path_dir);
+    String_Builder sb_path_dir = {0}; {
+        size_t i = sv_path.count - 1;
+        while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
+            --i;
+        da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+        sb_append_null(&sb_path_dir);
+    }
 
     cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
     if (!dir)
         return_defer(-ENOENT);
-    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
+        return_defer(-ENOTDIR);
 
+    // Go through this directory's `contents` and remove the item
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
     cJSON* dir_item = NULL;
     int index = 0;
@@ -444,8 +475,10 @@ defer:
 }
 
 int ewsfs_file_rename(const char* src_path, const char* dst_path) {
+    // Get the src_item and dst_item and do a lot of checks
     cJSON* src_item = ewsfs_file_get_item(src_path);
     cJSON* dst_item = ewsfs_file_get_item(dst_path);
+    // See man page rename(2)
     if (!src_item)
         return -ENOENT;
     if (src_item == dst_item)
@@ -484,6 +517,7 @@ int ewsfs_file_rename(const char* src_path, const char* dst_path) {
         sb_append_null(&sb_dst_path_basename);
     }
 
+    // Get the directories for the source and destination files, and do other checks
     cJSON* src_dir = ewsfs_file_get_item(sb_src_path_dir.items);
     cJSON* dst_dir = ewsfs_file_get_item(sb_dst_path_dir.items);
     if (src_dir == NULL || dst_dir == NULL)
@@ -493,9 +527,12 @@ int ewsfs_file_rename(const char* src_path, const char* dst_path) {
     if (dst_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_dir, "is_dir")))
         return_defer(-ENOTDIR);
 
+    // Change the name of the source item
     cJSON_SetValuestring(cJSON_GetObjectItemCaseSensitive(src_item, "name"), sb_dst_path_basename.items);
 
+    // If the directories aren't the same, move the source item to the destination directory
     if (src_dir != dst_dir) {
+        // Remove from source directory
         cJSON* src_dir_contents = cJSON_GetObjectItemCaseSensitive(src_dir, "contents");
         cJSON* src_dir_item = NULL;
         int index = 0;
@@ -507,6 +544,7 @@ int ewsfs_file_rename(const char* src_path, const char* dst_path) {
             ++index;
         }
 
+        // Add to destination directory / replace destination item
         cJSON* dst_dir_contents = cJSON_GetObjectItemCaseSensitive(dst_dir, "contents");
         if (dst_item) {
             cJSON* dst_dir_item = NULL;
@@ -536,32 +574,34 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
     (void) mode;
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
-        String_View sv_path = sv_from_cstr(path);
-        size_t i = sv_path.count - 1;
-        while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
-            --i;
-
         int result = 0;
 
-        String_Builder sb_path_dir = {0};
-        da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
-        sb_append_null(&sb_path_dir);
-
+        String_View sv_path = sv_from_cstr(path);
         String_Builder sb_path_basename = {0};
-        da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
-        sb_append_null(&sb_path_basename);
+        String_Builder sb_path_dir = {0}; {
+            size_t i = sv_path.count - 1;
+            while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
+                --i;
+            da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+            sb_append_null(&sb_path_dir);
+
+            da_append_many(&sb_path_basename, &sv_path.data[i+1], sv_path.count - i - 1);
+            sb_append_null(&sb_path_basename);
+        }
 
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
         if (!dir)
             return_defer(-ENOENT);
         if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
 
+        // Create the new directory item
         item = cJSON_CreateObject();
         cJSON_AddStringToObject(item, "name", sb_path_basename.items);
         cJSON_AddBoolToObject(item, "is_dir", true);
         // We don't need to add attributes, as they're added during validation if they're missing
         cJSON_AddArrayToObject(item, "contents");
 
+        // Add it to the `contents` array
         cJSON_AddItemToArray(cJSON_GetObjectItemCaseSensitive(dir, "contents"), item);
 
         ewsfs_fact_save_to_disk();
@@ -575,6 +615,7 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
 }
 
 int ewsfs_file_rmdir(const char* path) {
+    // Do the checks specified in rmdir(2)
     cJSON* item = ewsfs_file_get_item(path);
     if (!item)
         return -ENOENT;
@@ -586,19 +627,20 @@ int ewsfs_file_rmdir(const char* path) {
     int result = 0;
 
     String_View sv_path = sv_from_cstr(path);
-    size_t i = sv_path.count - 1;
-    while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
-        --i;
-
-    String_Builder sb_path_dir = {0};
-    da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
-    sb_append_null(&sb_path_dir);
+    String_Builder sb_path_dir = {0}; {
+        size_t i = sv_path.count - 1;
+        while (i != 0 && (sv_path.data[i] != '/' || i == sv_path.count - 1))
+            --i;
+        da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
+        sb_append_null(&sb_path_dir);
+    }
 
     cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
     if (!dir)
         return_defer(-ENOENT);
     if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
 
+    // Go through this directory's `contents` and remove the item
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
     cJSON* dir_item = NULL;
     int index = 0;
@@ -680,6 +722,7 @@ defer:
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
+        // If the file doesn't exist, and O_CREAT is specified, make the file first
         if (!(fi->flags & O_CREAT))
             return -ENOENT;
 
@@ -691,8 +734,10 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
     } else if (fi->flags & O_CREAT && fi->flags & O_EXCL) {
         return -EEXIST;
     }
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir")))
+        return -EISDIR;
 
+    // Assign a new file handle to this file
     for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
         if (!file_handles[i].item) {
             fi->fh = i;
@@ -717,6 +762,7 @@ int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi) {
     if (file_handle->flags & O_RDONLY)
         return -EBADF;
 
+    // Same as in `ewsfs_file_truncate`
     off_t sizediff = length - file_handle->buffer.count;
     for (off_t i = 0; i < sizediff; ++i) {
         da_append(&file_handle->buffer, '\0');
@@ -733,6 +779,7 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
     if (file_handle.flags & O_WRONLY)
         return -EBADF;
 
+    // Copy from the buffer in the file_handle to the provided buffer
     size_t read_size = 0;
     for (size_t i = offset; i < offset + size; ++i) {
         if (i >= file_handle.buffer.count)
@@ -750,6 +797,7 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
     if (file_handle->flags & O_RDONLY)
         return -EBADF;
 
+    // Copy from the provided buffer to the file_handle buffer
     size_t write_size = 0;
     for (size_t i = offset; i < offset + size; ++i) {
         if (i < file_handle->buffer.count)
@@ -768,6 +816,7 @@ int ewsfs_file_flush(struct fuse_file_info* fi) {
     if (file_handle.flags & O_RDONLY)
         return -EBADF;
 
+    // Write the file_handle buffer to disk
     int error = ewsfs_file_write_to_disk(&file_handle);
     if (error < 0)
         return error;
@@ -780,6 +829,8 @@ int ewsfs_file_release(struct fuse_file_info* fi) {
     file_handle_t file_handle = file_handles[fi->fh];
     if (!file_handle.item)
         return -EBADF;
+
+    // Free the memory and mark this file handle as unused
     da_free(file_handle.buffer);
     file_handles[fi->fh] = (file_handle_t) {0};
     return 0;
