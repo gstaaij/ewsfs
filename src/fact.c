@@ -618,6 +618,9 @@ defer:
 }
 
 int ewsfs_file_truncate(const char* path, off_t length) {
+    if (length < 0)
+        return -EINVAL;
+
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) return -ENOENT;
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
@@ -637,6 +640,15 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         da_append(&file_handle.buffer, '\0');
     }
     file_handle.buffer.count = length;
+
+    // [HACK] Also truncate all open files
+    for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
+        if (file_handles[i].item != item)
+            continue;
+        int error = ewsfs_file_ftruncate(length, &((struct fuse_file_info){.fh = i}));
+        if (error < 0)
+            return error;
+    }
 
     // Write the file back to the disk
     error = ewsfs_file_write_to_disk(&file_handle);
@@ -659,8 +671,6 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         cJSON_DeleteItemFromArray(allocation, i);
     }
 
-    cJSON* file_size = cJSON_GetObjectItemCaseSensitive(file_handle.item, "file_size");
-    cJSON_AddStringToObject(item, "debug_comment", nob_temp_sprintf("[ewsfs_file_truncate] length to set: %ld; length returned from ewsfs_file_write_to_disk: %d; length in cJSON: %lf", length, error, cJSON_GetNumberValue(file_size)));
     ewsfs_fact_save_to_disk();
 defer:
     da_free(file_handle.buffer);
@@ -695,6 +705,25 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
         }
     }
     return -EMFILE;
+}
+
+int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi) {
+    if (length < 0)
+        return -EINVAL;
+
+    if (fi->fh >= MAX_FILE_HANDLES)
+        return -EBADF;
+    file_handle_t* file_handle = &file_handles[fi->fh];
+    if (file_handle->flags & O_RDONLY)
+        return -EBADF;
+
+    off_t sizediff = length - file_handle->buffer.count;
+    for (off_t i = 0; i < sizediff; ++i) {
+        da_append(&file_handle->buffer, '\0');
+    }
+    file_handle->buffer.count = length;
+
+    return 0;
 }
 
 int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {

@@ -104,6 +104,13 @@ static int ewsfs_truncate(const char* path, off_t length) {
     return ewsfs_file_truncate(path, length);
 }
 
+static int ewsfs_ftruncate(const char* path, off_t length, struct fuse_file_info* fi) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return ewsfs_fact_file_truncate(length);
+    }
+    return ewsfs_file_ftruncate(length, fi);
+}
+
 static int ewsfs_write(const char* path, const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_write(buffer, size, offset);
@@ -143,6 +150,7 @@ static struct fuse_operations ewsfs_ops = {
     .mkdir = ewsfs_mkdir,
     .rmdir = ewsfs_rmdir,
     .truncate = ewsfs_truncate,
+    .ftruncate = ewsfs_ftruncate,
     .write = ewsfs_write,
     .flush = ewsfs_flush,
     .release = ewsfs_release,

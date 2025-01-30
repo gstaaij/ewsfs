@@ -31,6 +31,7 @@ int ewsfs_file_mkdir(const char* path, mode_t mode);
 int ewsfs_file_rmdir(const char* path);
 int ewsfs_file_truncate(const char* path, off_t length);
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi);
+int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi);
 int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
 int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi);
 int ewsfs_file_flush(struct fuse_file_info* fi);
