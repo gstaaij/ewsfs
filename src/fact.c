@@ -493,6 +493,95 @@ defer:
     return result;
 }
 
+int ewsfs_file_rename(const char* src_path, const char* dst_path) {
+    cJSON* src_item = ewsfs_file_get_item(src_path);
+    cJSON* dst_item = ewsfs_file_get_item(dst_path);
+    if (!src_item)
+        return -ENOENT;
+    if (src_item == dst_item)
+        return 0;
+    if (dst_item && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_item, "is_dir"))
+                 &&  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir")))
+        return -EISDIR;
+    if (dst_item &&  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_item, "is_dir"))
+                 && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir")))
+        return -ENOTDIR;
+    if (dst_item && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir"))
+                 && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(dst_item, "contents")) > 0)
+        return -ENOTEMPTY;
+
+    int result = 0;
+
+    String_View sv_src_path = sv_from_cstr(src_path);
+    String_Builder sb_src_path_dir = {0}; {
+        size_t i = sv_src_path.count - 1;
+        while (i != 0 && (sv_src_path.data[i] != '/' || i == sv_src_path.count - 1))
+            --i;
+        da_append_many(&sb_src_path_dir, sv_src_path.data, i == 0 ? 1 : i);
+        sb_append_null(&sb_src_path_dir);
+    }
+
+    String_View sv_dst_path = sv_from_cstr(dst_path);
+    String_Builder sb_dst_path_basename = {0};
+    String_Builder sb_dst_path_dir = {0}; {
+        size_t i = sv_dst_path.count - 1;
+        while (i != 0 && (sv_dst_path.data[i] != '/' || i == sv_dst_path.count - 1))
+            --i;
+        da_append_many(&sb_dst_path_dir, sv_dst_path.data, i == 0 ? 1 : i);
+        sb_append_null(&sb_dst_path_dir);
+
+        da_append_many(&sb_dst_path_basename, &sv_dst_path.data[i+1], sv_dst_path.count - i - 1);
+        sb_append_null(&sb_dst_path_basename);
+    }
+
+    cJSON* src_dir = ewsfs_file_get_item(sb_src_path_dir.items);
+    cJSON* dst_dir = ewsfs_file_get_item(sb_dst_path_dir.items);
+    if (src_dir == NULL || dst_dir == NULL)
+        return_defer(-ENOENT);
+    if (src_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_dir, "is_dir")))
+        return_defer(-ENOTDIR);
+    if (dst_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_dir, "is_dir")))
+        return_defer(-ENOTDIR);
+
+    cJSON_SetValuestring(cJSON_GetObjectItemCaseSensitive(src_item, "name"), sb_dst_path_basename.items);
+
+    if (src_dir != dst_dir) {
+        cJSON* src_dir_contents = cJSON_GetObjectItemCaseSensitive(src_dir, "contents");
+        cJSON* src_dir_item = NULL;
+        int index = 0;
+        cJSON_ArrayForEach(src_dir_item, src_dir_contents) {
+            if (src_item == src_dir_item) {
+                src_item = cJSON_DetachItemFromArray(src_dir_contents, index);
+                break;
+            }
+            ++index;
+        }
+
+        cJSON* dst_dir_contents = cJSON_GetObjectItemCaseSensitive(dst_dir, "contents");
+        if (dst_item) {
+            cJSON* dst_dir_item = NULL;
+            int index = 0;
+            cJSON_ArrayForEach(dst_dir_item, dst_dir_contents) {
+                if (dst_item == dst_dir_item) {
+                    cJSON_ReplaceItemInArray(dst_dir_contents, index, src_item);
+                    break;
+                }
+                ++index;
+            }
+        } else {
+            cJSON_AddItemToArray(dst_dir_contents, src_item);
+        }
+    }
+
+    ewsfs_fact_save_to_disk();
+
+defer:
+    da_free(sb_src_path_dir);
+    da_free(sb_dst_path_basename);
+    da_free(sb_dst_path_dir);
+    return result;
+}
+
 int ewsfs_file_mkdir(const char* path, mode_t mode) {
     (void) mode;
     cJSON* item = ewsfs_file_get_item(path);

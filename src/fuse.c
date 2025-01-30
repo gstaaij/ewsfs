@@ -9,6 +9,7 @@
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
+#undef rename
 
 char* devfile = NULL;
 FILE* fsfile = NULL;
@@ -65,6 +66,14 @@ static int ewsfs_unlink(const char* path) {
         return -EPERM;
     }
     return ewsfs_file_unlink(path);
+}
+
+static int ewsfs_rename(const char* oldpath, const char* newpath) {
+    if (strcmp(oldpath, "/"EWSFS_FACT_FILE) == 0
+     || strcmp(newpath, "/"EWSFS_FACT_FILE) == 0) {
+        return -EPERM;
+    }
+    return ewsfs_file_rename(oldpath, newpath);
 }
 
 static int ewsfs_mkdir(const char* path, mode_t mode) {
@@ -130,6 +139,7 @@ static struct fuse_operations ewsfs_ops = {
     .open = ewsfs_open,
     .mknod = ewsfs_mknod,
     .unlink = ewsfs_unlink,
+    .rename = ewsfs_rename,
     .mkdir = ewsfs_mkdir,
     .rmdir = ewsfs_rmdir,
     .truncate = ewsfs_truncate,
