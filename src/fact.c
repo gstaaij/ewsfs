@@ -248,12 +248,16 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
         st->st_mode = S_IFDIR | perms_int;
         st->st_nlink = 2;
         st->st_size = 4096;
-        return 0;
+    } else {
+        st->st_mode = S_IFREG | perms_int; // TODO: make permissions writable
+        st->st_nlink = 2;
+        st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
     }
-    st->st_mode = S_IFREG | perms_int; // TODO: make permissions writable
-    st->st_nlink = 2;
-    st->st_size = (off_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item, "file_size"));
-    // TODO: access, modification and creation dates
+
+    // Set universal stat fields
+    st->st_ctim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_created"));
+    st->st_mtim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_modified"));
+    st->st_atim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_accessed"));
     return 0;
 }
 
@@ -271,6 +275,21 @@ int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
         const char* name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(dir_item, "name"));
         filler(buffer, name, NULL, 0);
     }
+    return 0;
+}
+
+int ewsfs_file_utimens(const char* path, const struct timespec tv[2]) {
+    cJSON* item = ewsfs_file_get_item(path);
+    if (!item)
+        return -ENOENT;
+
+    // Set the date_accessed and date_modified attributes
+    cJSON* item_attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_accessed"), (double) tv[0].tv_sec);
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_modified"), (double) tv[1].tv_sec);
+
+    // Save the FACT to disk
+    ewsfs_fact_save_to_disk();
     return 0;
 }
 

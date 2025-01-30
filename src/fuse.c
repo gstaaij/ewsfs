@@ -48,6 +48,13 @@ static int ewsfs_readdir(const char* path, void* buffer, fuse_fill_dir_t filler,
     return ewsfs_file_readdir(path, buffer, filler);
 }
 
+static int ewsfs_utimens(const char* path, const struct timespec tv[2]) {
+    if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        return -EPERM;
+    }
+    return ewsfs_file_utimens(path, tv);
+}
+
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
         return ewsfs_fact_file_read(buffer, size, offset);
@@ -143,6 +150,7 @@ static void ewsfs_destroy() {
 static struct fuse_operations ewsfs_ops = {
     .getattr = ewsfs_getattr,
     .readdir = ewsfs_readdir,
+    .utimens = ewsfs_utimens,
     .read = ewsfs_read,
     .open = ewsfs_open,
     .mknod = ewsfs_mknod,

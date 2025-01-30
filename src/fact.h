@@ -24,6 +24,7 @@ long ewsfs_fact_file_size();
 cJSON* ewsfs_file_get_item(const char* path);
 int ewsfs_file_getattr(const char* path, struct stat* st);
 int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler);
+int ewsfs_file_utimens(const char* path, const struct timespec tv[2]);
 int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev);
 int ewsfs_file_unlink(const char* path);
 int ewsfs_file_rename(const char* oldpath, const char* newpath);
