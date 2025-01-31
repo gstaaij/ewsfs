@@ -42,7 +42,7 @@ int ewsfs_file_release(struct fuse_file_info* fi);
 bool ewsfs_fact_init(FILE* file);
 void ewsfs_fact_uninit();
 bool ewsfs_fact_validate(cJSON* root);
-bool ewsfs_fact_validate_attributes(cJSON* item);
+bool ewsfs_fact_validate_attributes(cJSON* item, bool is_dir);
 bool ewsfs_fact_validate_file(cJSON* file);
 bool ewsfs_fact_validate_dir(cJSON* dir);
 bool ewsfs_fact_validate_item(cJSON* item);

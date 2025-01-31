@@ -314,7 +314,7 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     }
 
     // Set stat fields depending on item type
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+    if (item == fact_root || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
         st->st_mode = S_IFDIR | perms_int;
         st->st_nlink = 2;
         st->st_size = 4096;
@@ -345,13 +345,13 @@ int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
         ewsfs_log("[READDIR] Item not found");
         return -ENOENT;
     }
-    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
         ewsfs_log("[READDIR] Not a directory");
         return -ENOTDIR;
     }
 
 #ifdef EWSFS_LOG
-    if (strcmp(path, "/") == 0) {
+    if (dir == fact_root) {
         filler(buffer, EWSFS_LOG_FILE_NAME, NULL, 0);
     }
 #endif // EWSFS_LOG
@@ -578,7 +578,7 @@ int ewsfs_file_unlink(const char* path) {
         ewsfs_log("[UNLINK] Item not found");
         return -ENOENT;
     }
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+    if (item == fact_root || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
         ewsfs_log("[UNLINK] Item is a directory");
         return -EISDIR;
     }
@@ -823,7 +823,7 @@ int ewsfs_file_rmdir(const char* path) {
         ewsfs_log("[RMDIR] Item exists");
         return -ENOENT;
     }
-    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+    if (item != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
         ewsfs_log("[RMDIR] Item not a directory");
         return -ENOTDIR;
     }
@@ -892,7 +892,7 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         ewsfs_log("[TRUNCATE] Item not found");
         return -ENOENT;
     }
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+    if (item == fact_root || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
         ewsfs_log("[TRUNCATE] Item is a directory");
         return -EISDIR;
     }
@@ -988,8 +988,8 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
         ewsfs_log("[OPEN] Item exists, O_CREAT and O_EXCL specified");
         return -EEXIST;
     }
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
-        ewsfs_log("[OPEN] Item not a directory");
+    if (item == fact_root || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        ewsfs_log("[OPEN] Item is a directory");
         return -EISDIR;
     }
 
@@ -1227,10 +1227,12 @@ void ewsfs_fact_uninit() {
     for (size_t i = 0; i < MAX_FILE_HANDLES; ++i) {
         da_free(file_handles[i].buffer);
     }
+#ifdef EWSFS_LOG
     for (size_t i = 0; i < ewsfs_log_list.count; ++i) {
         da_free(ewsfs_log_list.items[i]);
     }
     da_free(ewsfs_log_list);
+#endif // EWSFS_LOG
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
@@ -1248,7 +1250,7 @@ bool ewsfs_fact_validate(cJSON* root) {
     return true;
 }
 
-bool ewsfs_fact_validate_attributes(cJSON* item) {
+bool ewsfs_fact_validate_attributes(cJSON* item, bool is_dir) {
     cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
     static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed", "permissions"};
     typedef enum {
@@ -1272,7 +1274,7 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
                     break;
                 case ATTRIBUTE_TYPE_STRING:
                     if (strcmp(attribute_names[i], "permissions") == 0)
-                        attr = cJSON_CreateString("755");
+                        attr = cJSON_CreateString(is_dir ? "755" : "644");
                     else
                         attr = cJSON_CreateString("");
                     break;
@@ -1303,7 +1305,7 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
 }
 
 bool ewsfs_fact_validate_file(cJSON* file) {
-    if (!ewsfs_fact_validate_attributes(file))
+    if (!ewsfs_fact_validate_attributes(file, false))
         return false;
 
     if (!cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(file, "file_size"))) {
@@ -1336,7 +1338,7 @@ bool ewsfs_fact_validate_file(cJSON* file) {
 }
 
 bool ewsfs_fact_validate_dir(cJSON* dir) {
-    if (!ewsfs_fact_validate_attributes(dir))
+    if (!ewsfs_fact_validate_attributes(dir, true))
         return false;
 
     cJSON* item = NULL;

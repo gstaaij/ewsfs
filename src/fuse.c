@@ -26,7 +26,7 @@ static int ewsfs_getattr(const char* path, struct stat* st) {
         st->st_nlink = 2;
         st->st_size = ewsfs_fact_file_size();
     } else {
-        // It's neither of the above, so redirect to `ewsfs_file_*` function
+        // It's neither of the above, so redirect to `ewsfs_file_getattr`
         int result = ewsfs_file_getattr(path, st);
         if (result != 0) return result;
     }
@@ -57,8 +57,10 @@ static int ewsfs_utimens(const char* path, const struct timespec tv[2]) {
 
 static int ewsfs_read(const char* path, char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
     if (strcmp(path, "/"EWSFS_FACT_FILE) == 0) {
+        // If path points to the FACT file, redirect to an `ewsfs_fact_file_*` function or return an error
         return ewsfs_fact_file_read(buffer, size, offset);
     }
+    // If path doesn't point to the FACT file, redirect to an `ewsfs_file_*` function
     return ewsfs_file_read(buffer, size, offset, fi);
 }
 
