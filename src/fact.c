@@ -1,9 +1,60 @@
+#include <inttypes.h>
+#include <stdarg.h>
 #include <string.h>
 #include <time.h>
 #include "fact.h"
 #include "block.h"
 #define NOB_STRIP_PREFIX
 #include "nob.h"
+
+#ifdef EWSFS_LOG
+#include <stdarg.h>
+
+typedef struct {
+    String_Builder* items;
+    size_t count;
+    size_t capacity;
+} ewsfs_log_t;
+
+static ewsfs_log_t ewsfs_log_list;
+
+#define EWSFS_LOG_MAX_LINES 40
+#define EWSFS_LOG_MAX_LINE_LEN 1024
+#define EWSFS_LOG_FILE_NAME "ewsfs.log"
+
+static void ewsfs_log(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char buffer[EWSFS_LOG_MAX_LINE_LEN];
+    vsnprintf(buffer, EWSFS_LOG_MAX_LINE_LEN, fmt, args);
+    va_end(args);
+
+    // Reduce the length of the log list until it's less than EWSFS_LOG_MAX_LINES lines
+    while (ewsfs_log_list.count >= EWSFS_LOG_MAX_LINES) {
+        da_free(ewsfs_log_list.items[0]);
+        for (size_t i = 1; i < ewsfs_log_list.count; ++i) {
+            ewsfs_log_list.items[i - 1] = ewsfs_log_list.items[i];
+        }
+        --ewsfs_log_list.count;
+    }
+
+    // Add the new line to the log list
+    String_Builder new_line = {0};
+    sb_append_cstr(&new_line, buffer);
+    da_append(&ewsfs_log_list, new_line);
+}
+
+static off_t ewsfs_log_size() {
+    off_t size = 0;
+    for (size_t i = 0; i < ewsfs_log_list.count; ++i)
+        size += ewsfs_log_list.items[i].count + 1;
+    return size;
+}
+#else // EWSFS_LOG
+static void ewsfs_log(const char* fmt, ...) {
+    (void) fmt;
+}
+#endif // EWSFS_LOG
 
 #define FACT_END_ADDRESS_SIZE 8
 
@@ -169,6 +220,8 @@ void ewsfs_fact_save_to_disk() {
 
     // Flush the device or image file, so the changes are pushed to the disk
     fflush(fsfile);
+
+    ewsfs_log("[FACT] Saved fact.json");
 }
 
 
@@ -231,10 +284,23 @@ cJSON* ewsfs_file_get_item(const char* path) {
 }
 
 int ewsfs_file_getattr(const char* path, struct stat* st) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        st->st_mode = S_IFREG | 0444;
+        st->st_nlink = 2;
+        st->st_size = ewsfs_log_size();
+        return 0;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[GETATTR] ewsfs_file_getattr: %s", path);
+
     // Get the item for this path and fail if it doesn't exist
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item)
+    if (!item) {
+        ewsfs_log("[GETATTR] Item not found");
         return -ENOENT;
+    }
 
     cJSON* item_attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
 
@@ -242,7 +308,10 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     char* perms_str = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "permissions"));
     int perms_int;
     sscanf(perms_str, "%o", &perms_int);
-    if (perms_int == EOF) return -ENOENT;
+    if (perms_int == EOF) {
+        ewsfs_log("[GETATTR] Permissions not valid");
+        return -ENOENT;
+    }
 
     // Set stat fields depending on item type
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
@@ -263,11 +332,29 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
 }
 
 int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -ENOTDIR;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[READDIR] ewsfs_file_readdir: %s", path);
+
     cJSON* dir = ewsfs_file_get_item(path);
-    if (!dir)
+    if (!dir) {
+        ewsfs_log("[READDIR] Item not found");
         return -ENOENT;
-    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
-        return -ENOENT;
+    }
+    if (cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+        ewsfs_log("[READDIR] Not a directory");
+        return -ENOTDIR;
+    }
+
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/") == 0) {
+        filler(buffer, EWSFS_LOG_FILE_NAME, NULL, 0);
+    }
+#endif // EWSFS_LOG
 
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
     cJSON* dir_item = NULL;
@@ -280,9 +367,19 @@ int ewsfs_file_readdir(const char* path, void* buffer, fuse_fill_dir_t filler) {
 }
 
 int ewsfs_file_utimens(const char* path, const struct timespec tv[2]) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[UTIMENS] ewsfs_file_utimens: %s; %ld; %ld", path, tv[0].tv_sec, tv[1].tv_sec);
+
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item)
+    if (!item) {
+        ewsfs_log("[UTIMENS] Item not found");
         return -ENOENT;
+    }
 
     // Set the date_accessed and date_modified attributes
     cJSON* item_attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
@@ -396,9 +493,19 @@ static int ewsfs_file_write_to_disk(file_handle_t* file_handle) {
 }
 
 int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EEXIST;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[MKNOD] ewsfs_file_mknod: %s", path);
+
     // We don't support creating anything but normal files as of now
-    if (!(mode & S_IFREG))
+    if (!(mode & S_IFREG)) {
+        ewsfs_log("[MKNOD] Unsupported file type");
         return -EINVAL;
+    }
     (void) dev;
 
     cJSON* item = ewsfs_file_get_item(path);
@@ -412,8 +519,10 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
             size_t i = sv_path.count - 1;
             while (i != 0 && sv_path.data[i] != '/')
                 --i;
-            if (i == sv_path.count - 1)
+            if (i == sv_path.count - 1) {
+                ewsfs_log("[MKNOD] Item is a directory");
                 return_defer(-EISDIR);
+            }
             da_append_many(&sb_path_dir, sv_path.data, i == 0 ? 1 : i);
             sb_append_null(&sb_path_dir);
 
@@ -422,10 +531,14 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
         }
 
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
-        if (!dir)
+        if (!dir) {
+            ewsfs_log("[MKNOD] Item %s not found", sb_path_dir.items);
             return_defer(-ENOENT);
-        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
+        }
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+            ewsfs_log("[MKNOD] Item %s not a directory", sb_path_dir.items);
             return_defer(-ENOTDIR);
+        }
 
         // Create the new cJSON object for this new file
         item = cJSON_CreateObject();
@@ -446,16 +559,29 @@ int ewsfs_file_mknod(const char* path, mode_t mode, dev_t dev) {
         da_free(sb_path_basename);
         return result;
     }
+    ewsfs_log("[MKNOD] Item already exists");
     return -EEXIST;
 }
 
 int ewsfs_file_unlink(const char* path) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[UNLINK] ewsfs_file_unlink: %s", path);
+
     // Check if the file exists and isn't a directory
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item)
+    if (!item) {
+        ewsfs_log("[UNLINK] Item not found");
         return -ENOENT;
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir")))
+    }
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        ewsfs_log("[UNLINK] Item is a directory");
         return -EISDIR;
+    }
 
     int result = 0;
 
@@ -470,10 +596,14 @@ int ewsfs_file_unlink(const char* path) {
     }
 
     cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
-    if (!dir)
+    if (!dir) {
+        ewsfs_log("[UNLINK] Item %s not found", sb_path_dir.items);
         return_defer(-ENOENT);
-    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir")))
+    }
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+        ewsfs_log("[UNLINK] Item %s not a directory", sb_path_dir.items);
         return_defer(-ENOTDIR);
+    }
 
     // Go through this directory's `contents` and remove the item
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
@@ -488,6 +618,7 @@ int ewsfs_file_unlink(const char* path) {
         }
         ++index;
     }
+    ewsfs_log("[UNLINK] Item not found after finding it");
     return_defer(-ENOENT);
 defer:
     da_free(sb_path_dir);
@@ -495,23 +626,42 @@ defer:
 }
 
 int ewsfs_file_rename(const char* src_path, const char* dst_path) {
+#ifdef EWSFS_LOG
+    if (strcmp(src_path, "/"EWSFS_LOG_FILE_NAME) == 0
+     || strcmp(dst_path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[RENAME] ewsfs_file_rename: %s; %s", src_path, dst_path);
+
     // Get the src_item and dst_item and do a lot of checks
     cJSON* src_item = ewsfs_file_get_item(src_path);
     cJSON* dst_item = ewsfs_file_get_item(dst_path);
     // See man page rename(2)
-    if (!src_item)
+    if (!src_item) {
+        ewsfs_log("[RENAME] Item not found");
         return -ENOENT;
-    if (src_item == dst_item)
+    }
+    if (src_item == dst_item) {
+        ewsfs_log("[RENAME] Source item same as destination item");
         return 0;
+    }
     if (dst_item && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_item, "is_dir"))
-                 &&  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir")))
+                 &&  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir"))) {
+        ewsfs_log("[RENAME] Source item not a directory, but destination item is");
         return -EISDIR;
+    }
     if (dst_item &&  cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_item, "is_dir"))
-                 && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir")))
+                 && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir"))) {
+        ewsfs_log("[RENAME] Source item is a directory, but destination item is not");
         return -ENOTDIR;
+    }
     if (dst_item && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_item, "is_dir"))
-                 && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(dst_item, "contents")) > 0)
+                 && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(dst_item, "contents")) > 0) {
+        ewsfs_log("[RENAME] Destination item not empty");
         return -ENOTEMPTY;
+    }
 
     int result = 0;
 
@@ -540,12 +690,18 @@ int ewsfs_file_rename(const char* src_path, const char* dst_path) {
     // Get the directories for the source and destination files, and do other checks
     cJSON* src_dir = ewsfs_file_get_item(sb_src_path_dir.items);
     cJSON* dst_dir = ewsfs_file_get_item(sb_dst_path_dir.items);
-    if (src_dir == NULL || dst_dir == NULL)
+    if (src_dir == NULL || dst_dir == NULL) {
+        ewsfs_log("[RENAME] Item %s or %s not found", sb_src_path_dir.items, sb_dst_path_dir.items);
         return_defer(-ENOENT);
-    if (src_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_dir, "is_dir")))
+    }
+    if (src_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(src_dir, "is_dir"))) {
+        ewsfs_log("[RENAME] Item %s not a directory", sb_src_path_dir.items);
         return_defer(-ENOTDIR);
-    if (dst_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_dir, "is_dir")))
+    }
+    if (dst_dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dst_dir, "is_dir"))) {
+        ewsfs_log("[RENAME] Item %s not a directory", sb_dst_path_dir.items);
         return_defer(-ENOTDIR);
+    }
 
     // Change the name of the source item
     cJSON_SetValuestring(cJSON_GetObjectItemCaseSensitive(src_item, "name"), sb_dst_path_basename.items);
@@ -595,6 +751,14 @@ defer:
 }
 
 int ewsfs_file_mkdir(const char* path, mode_t mode) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EEXIST;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[MKDIR] ewsfs_file_mkdir: %s", path);
+
     (void) mode;
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
@@ -614,9 +778,14 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
         }
 
         cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
-        if (!dir)
+        if (!dir) {
+            ewsfs_log("[MKDIR] Item %s not found", sb_path_dir.items);
             return_defer(-ENOENT);
-        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+        }
+        if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+            ewsfs_log("[MKDIR] Item %s not a directory", sb_path_dir.items);
+            return_defer(-ENOTDIR);
+        }
 
         // Create the new directory item
         item = cJSON_CreateObject();
@@ -635,18 +804,33 @@ int ewsfs_file_mkdir(const char* path, mode_t mode) {
         da_free(sb_path_basename);
         return result;
     }
+    ewsfs_log("[MKDIR] Item exists");
     return -EEXIST;
 }
 
 int ewsfs_file_rmdir(const char* path) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -ENOTDIR;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[RMDIR] ewsfs_file_rmdir: %s", path);
+
     // Do the checks specified in rmdir(2)
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item)
+    if (!item) {
+        ewsfs_log("[RMDIR] Item exists");
         return -ENOENT;
-    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir")))
+    }
+    if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        ewsfs_log("[RMDIR] Item not a directory");
         return -ENOTDIR;
-    if (cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(item, "contents")) > 0)
+    }
+    if (cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(item, "contents")) > 0) {
+        ewsfs_log("[RMDIR] Directory not empty");
         return -ENOTEMPTY;
+    }
 
     int result = 0;
 
@@ -660,9 +844,14 @@ int ewsfs_file_rmdir(const char* path) {
     }
 
     cJSON* dir = ewsfs_file_get_item(sb_path_dir.items);
-    if (!dir)
+    if (!dir) {
+        ewsfs_log("[RMDIR] Item %s not found", sb_path_dir.items);
         return_defer(-ENOENT);
-    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) return_defer(-ENOTDIR);
+    }
+    if (dir != fact_root && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(dir, "is_dir"))) {
+        ewsfs_log("[RMDIR] Item %s not a directory", sb_path_dir.items);
+        return_defer(-ENOTDIR);
+    }
 
     // Go through this directory's `contents` and remove the item
     cJSON* dir_contents = cJSON_GetObjectItemCaseSensitive(dir, "contents");
@@ -677,6 +866,7 @@ int ewsfs_file_rmdir(const char* path) {
         }
         ++index;
     }
+    ewsfs_log("[RMDIR] Item not found after finding it");
     return_defer(-ENOENT);
 defer:
     da_free(sb_path_dir);
@@ -684,12 +874,28 @@ defer:
 }
 
 int ewsfs_file_truncate(const char* path, off_t length) {
-    if (length < 0)
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[TRUNCATE] ewsfs_file_truncate: %s; %ld", path, length);
+
+    if (length < 0) {
+        ewsfs_log("[TRUNCATE] Length is negative");
         return -EINVAL;
+    }
 
     cJSON* item = ewsfs_file_get_item(path);
-    if (!item) return -ENOENT;
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) return -EISDIR;
+    if (!item) {
+        ewsfs_log("[TRUNCATE] Item not found");
+        return -ENOENT;
+    }
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        ewsfs_log("[TRUNCATE] Item is a directory");
+        return -EISDIR;
+    }
 
     int result = 0;
 
@@ -697,8 +903,10 @@ int ewsfs_file_truncate(const char* path, off_t length) {
     file_handle_t file_handle = {0};
     file_handle.item = item;
     int error = ewsfs_file_read_from_disk(&file_handle);
-    if (error < 0)
+    if (error < 0) {
+        ewsfs_log("[TRUNCATE] ewsfs_file_read_from_disk failed with error %d", error);
         return_defer(error);
+    }
 
     // Truncate the same way as in ewsfs_fact_file_truncate
     off_t sizediff = length - file_handle.buffer.count;
@@ -712,14 +920,18 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         if (file_handles[i].item != item)
             continue;
         int error = ewsfs_file_ftruncate(length, &((struct fuse_file_info){.fh = i}));
-        if (error < 0)
+        if (error < 0) {
+            ewsfs_log("[TRUNCATE] ewsfs_file_ftruncate failed with error %d", error);
             return error;
+        }
     }
 
     // Write the file back to the disk
     error = ewsfs_file_write_to_disk(&file_handle);
-    if (error < 0)
+    if (error < 0) {
+        ewsfs_log("[TRUNCATE] ewsfs_file_write_to_disk failed with error %d", error);
         return_defer(error);
+    }
 
     // Remove unnecessary alloc items
     cJSON* allocation = cJSON_GetObjectItemCaseSensitive(file_handle.item, "allocation");
@@ -748,22 +960,38 @@ defer:
 }
 
 int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
+#ifdef EWSFS_LOG
+    if (strcmp(path, "/"EWSFS_LOG_FILE_NAME) == 0) {
+        fi->fh = MAX_FILE_HANDLES;
+        return 0;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[OPEN] ewsfs_file_open: %s", path);
+
     cJSON* item = ewsfs_file_get_item(path);
     if (!item) {
         // If the file doesn't exist, and O_CREAT is specified, make the file first
-        if (!(fi->flags & O_CREAT))
+        if (!(fi->flags & O_CREAT)) {
+            ewsfs_log("[OPEN] Item not found, and O_CREAT not specified");
             return -ENOENT;
+        }
 
         int error = ewsfs_file_mknod(path, S_IFREG, 0);
-        if (error)
+        if (error) {
+            ewsfs_log("[OPEN] ewsfs_file_mknod failed with error %d", error);
             return error;
+        }
 
         item = ewsfs_file_get_item(path);
     } else if (fi->flags & O_CREAT && fi->flags & O_EXCL) {
+        ewsfs_log("[OPEN] Item exists, O_CREAT and O_EXCL specified");
         return -EEXIST;
     }
-    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir")))
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(item, "is_dir"))) {
+        ewsfs_log("[OPEN] Item not a directory");
         return -EISDIR;
+    }
 
     // Assign a new file handle to this file
     for (uint64_t i = 0; i < MAX_FILE_HANDLES; ++i) {
@@ -772,29 +1000,47 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
             file_handles[i].item = item;
             file_handles[i].flags = fi->flags;
             int error = ewsfs_file_read_from_disk(&file_handles[i]);
-            if (error < 0)
+            if (error < 0) {
+                ewsfs_log("[OPEN] ewsfs_file_read_from_disk failed with error %d", error);
                 return error;
+            }
 
             // Set the date_accessed attribute
             cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
             cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_accessed"), (double) time(NULL));
             ewsfs_fact_save_to_disk();
 
+            ewsfs_log("[OPEN] Opened file handle %"PRIu64, fi->fh);
             return 0;
         }
     }
+    ewsfs_log("[OPEN] Too many open files");
     return -EMFILE;
 }
 
 int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi) {
-    if (length < 0)
-        return -EINVAL;
+#ifdef EWSFS_LOG
+    if (fi->fh == MAX_FILE_HANDLES) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
 
-    if (fi->fh >= MAX_FILE_HANDLES)
+    ewsfs_log("[FTRUNCATE] ewsfs_file_ftruncate: %"PRIu64", %ld", fi->fh, length);
+
+    if (length < 0) {
+        ewsfs_log("[FTRUNCATE] Length is negative");
+        return -EINVAL;
+    }
+
+    if (fi->fh >= MAX_FILE_HANDLES) {
+        ewsfs_log("[FTRUNCATE] File handle too large");
         return -EBADF;
+    }
     file_handle_t* file_handle = &file_handles[fi->fh];
-    if (file_handle->flags & O_RDONLY)
+    if (file_handle->flags & O_RDONLY) {
+        ewsfs_log("[FTRUNCATE] File handle not writable");
         return -EBADF;
+    }
 
     // Same as in `ewsfs_file_truncate`
     off_t sizediff = length - file_handle->buffer.count;
@@ -811,11 +1057,40 @@ int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi) {
 }
 
 int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    if (fi->fh >= MAX_FILE_HANDLES)
+#ifdef EWSFS_LOG
+    if (fi->fh == MAX_FILE_HANDLES) {
+        size_t log_size = ewsfs_log_size();
+        char temp_buffer[log_size];
+        size_t index = 0;
+        for (size_t i = 0; i < ewsfs_log_list.count; ++i) {
+            for (size_t j = 0; j < ewsfs_log_list.items[i].count; ++j) {
+                temp_buffer[index] = ewsfs_log_list.items[i].items[j];
+                ++index;
+            }
+            temp_buffer[index] = '\n';
+            ++index;
+        }
+
+        size_t write_count = 0;
+        for (size_t i = offset; i < offset + size && i < log_size; ++i) {
+            buffer[write_count] = temp_buffer[i];
+            ++write_count;
+        }
+        return write_count;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[READ] ewsfs_file_read: %"PRIu64"; %zu; %ld", fi->fh, size, offset);
+
+    if (fi->fh >= MAX_FILE_HANDLES) {
+        ewsfs_log("[READ] File handle too large");
         return -EBADF;
+    }
     const file_handle_t file_handle = file_handles[fi->fh];
-    if (file_handle.flags & O_WRONLY)
+    if (file_handle.flags & O_WRONLY) {
+        ewsfs_log("[READ] File handle not readable");
         return -EBADF;
+    }
 
     // Copy from the buffer in the file_handle to the provided buffer
     size_t read_size = 0;
@@ -825,15 +1100,28 @@ int ewsfs_file_read(char* buffer, size_t size, off_t offset, struct fuse_file_in
         buffer[i - offset] = file_handle.buffer.items[i];
         read_size++;
     }
+    ewsfs_log("[READ] Read %zu bytes", read_size);
     return read_size;
 }
 
 int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_file_info* fi) {
-    if (fi->fh >= MAX_FILE_HANDLES)
+#ifdef EWSFS_LOG
+    if (fi->fh == MAX_FILE_HANDLES) {
+        return -EPERM;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[WRITE] ewsfs_file_write: %"PRIu64"; %zu; %ld", fi->fh, size, offset);
+
+    if (fi->fh >= MAX_FILE_HANDLES) {
+        ewsfs_log("[WRITE] File handle too large");
         return -EBADF;
+    }
     file_handle_t* file_handle = &file_handles[fi->fh];
-    if (file_handle->flags & O_RDONLY)
+    if (file_handle->flags & O_RDONLY) {
+        ewsfs_log("[WRITE] File handle not writable");
         return -EBADF;
+    }
 
     // Copy from the provided buffer to the file_handle buffer
     size_t write_size = 0;
@@ -849,29 +1137,56 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
     cJSON* attributes = cJSON_GetObjectItemCaseSensitive(file_handle->item, "attributes");
     cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_modified"), (double) time(NULL));
 
+    ewsfs_log("[WRITE] Wrote %zu bytes", write_size);
     return write_size;
 }
 
 int ewsfs_file_flush(struct fuse_file_info* fi) {
-    if (fi->fh >= MAX_FILE_HANDLES)
+#ifdef EWSFS_LOG
+    if (fi->fh == MAX_FILE_HANDLES) {
+        return 0;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[FLUSH] ewsfs_file_flush: %"PRIu64, fi->fh);
+
+    if (fi->fh >= MAX_FILE_HANDLES) {
+        ewsfs_log("[FLUSH] File handle too large");
         return -EBADF;
+    }
     file_handle_t file_handle = file_handles[fi->fh];
-    if (file_handle.flags & O_RDONLY)
+    if (file_handle.flags & O_RDONLY) {
+        ewsfs_log("[FLUSH] File handle not writable");
         return -EBADF;
+    }
 
     // Write the file_handle buffer to disk
     int error = ewsfs_file_write_to_disk(&file_handle);
-    if (error < 0)
+    if (error < 0) {
+        ewsfs_log("[FLUSH] ewsfs_file_write_to_disk failed with error %d", error);
         return error;
+    }
     return 0;
 }
 
 int ewsfs_file_release(struct fuse_file_info* fi) {
-    if (fi->fh >= MAX_FILE_HANDLES)
+#ifdef EWSFS_LOG
+    if (fi->fh == MAX_FILE_HANDLES) {
+        return 0;
+    }
+#endif // EWSFS_LOG
+
+    ewsfs_log("[RELEASE] ewsfs_file_release: %"PRIu64, fi->fh);
+
+    if (fi->fh >= MAX_FILE_HANDLES) {
+        ewsfs_log("[RELEASE] File handle too large");
         return -EBADF;
+    }
     file_handle_t file_handle = file_handles[fi->fh];
-    if (!file_handle.item)
+    if (!file_handle.item) {
+        ewsfs_log("[RELEASE] File handle not found");
         return -EBADF;
+    }
 
     // Free the memory and mark this file handle as unused
     da_free(file_handle.buffer);
@@ -912,6 +1227,10 @@ void ewsfs_fact_uninit() {
     for (size_t i = 0; i < MAX_FILE_HANDLES; ++i) {
         da_free(file_handles[i].buffer);
     }
+    for (size_t i = 0; i < ewsfs_log_list.count; ++i) {
+        da_free(ewsfs_log_list.items[i]);
+    }
+    da_free(ewsfs_log_list);
 }
 
 bool ewsfs_fact_validate(cJSON* root) {

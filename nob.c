@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
 
     cmd_append(&cmd, "gcc", "-Wall", "-Wextra", "-Wswitch-enum", "-ggdb");
     cmd_append(&cmd, "-D_FILE_OFFSET_BITS=64");
+    cmd_append(&cmd, "-DEWSFS_LOG");
     cmd_append(&cmd, "-o", "build/ewsfs_fuse");
     for (size_t i = 0; i < ARRAY_LEN(c_files); ++i) {
         cmd_append(&cmd, c_files[i]);
