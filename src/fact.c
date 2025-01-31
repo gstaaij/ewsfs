@@ -1,4 +1,5 @@
 #include <string.h>
+#include <time.h>
 #include "fact.h"
 #include "block.h"
 #define NOB_STRIP_PREFIX
@@ -255,9 +256,9 @@ int ewsfs_file_getattr(const char* path, struct stat* st) {
     }
 
     // Set universal stat fields
-    st->st_ctim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_created"));
-    st->st_mtim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_modified"));
-    st->st_atim.tv_sec = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_accessed"));
+    st->st_ctime = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_created"));
+    st->st_mtime = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_modified"));
+    st->st_atime = (time_t) cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(item_attributes, "date_accessed"));
     return 0;
 }
 
@@ -580,6 +581,10 @@ int ewsfs_file_rename(const char* src_path, const char* dst_path) {
         }
     }
 
+    // Set the date_modified attribute
+    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(src_item, "attributes");
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_modified"), (double) time(NULL));
+
     ewsfs_fact_save_to_disk();
 
 defer:
@@ -732,6 +737,10 @@ int ewsfs_file_truncate(const char* path, off_t length) {
         cJSON_DeleteItemFromArray(allocation, i);
     }
 
+    // Set the date_modified attribute
+    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(file_handle.item, "attributes");
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_modified"), (double) time(NULL));
+
     ewsfs_fact_save_to_disk();
 defer:
     da_free(file_handle.buffer);
@@ -765,6 +774,12 @@ int ewsfs_file_open(const char* path, struct fuse_file_info* fi) {
             int error = ewsfs_file_read_from_disk(&file_handles[i]);
             if (error < 0)
                 return error;
+
+            // Set the date_accessed attribute
+            cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
+            cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_accessed"), (double) time(NULL));
+            ewsfs_fact_save_to_disk();
+
             return 0;
         }
     }
@@ -787,6 +802,10 @@ int ewsfs_file_ftruncate(off_t length, struct fuse_file_info* fi) {
         da_append(&file_handle->buffer, '\0');
     }
     file_handle->buffer.count = length;
+
+    // Set the date_modified attribute
+    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(file_handle->item, "attributes");
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_modified"), (double) time(NULL));
 
     return 0;
 }
@@ -825,6 +844,11 @@ int ewsfs_file_write(const char* buffer, size_t size, off_t offset, struct fuse_
             da_append(&file_handle->buffer, buffer[i - offset]);
         ++write_size;
     }
+
+    // Set the date_modified attribute
+    cJSON* attributes = cJSON_GetObjectItemCaseSensitive(file_handle->item, "attributes");
+    cJSON_SetNumberValue(cJSON_GetObjectItemCaseSensitive(attributes, "date_modified"), (double) time(NULL));
+
     return write_size;
 }
 
@@ -909,10 +933,10 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
     cJSON* attributes = cJSON_GetObjectItemCaseSensitive(item, "attributes");
     static const char* attribute_names[] = {"date_created", "date_modified", "date_accessed", "permissions"};
     typedef enum {
-        ATTRIBUTE_TYPE_NUMBER,
+        ATTRIBUTE_TYPE_TIME,
         ATTRIBUTE_TYPE_STRING,
     } attribute_types_t;
-    static const attribute_types_t attribute_types[] = {ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_NUMBER, ATTRIBUTE_TYPE_STRING};
+    static const attribute_types_t attribute_types[] = {ATTRIBUTE_TYPE_TIME, ATTRIBUTE_TYPE_TIME, ATTRIBUTE_TYPE_TIME, ATTRIBUTE_TYPE_STRING};
     if (!cJSON_IsObject(attributes)) {
         // We don't want to throw an error when all of the attributes are missing,
         // just use the default values if that's the case.
@@ -924,8 +948,8 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
         for (size_t i = 0; i < ARRAY_LEN(attribute_names); ++i) {
             cJSON* attr = NULL;
             switch (attribute_types[i]) {
-                case ATTRIBUTE_TYPE_NUMBER:
-                    attr = cJSON_CreateNumber(0);
+                case ATTRIBUTE_TYPE_TIME:
+                    attr = cJSON_CreateNumber((double) time(NULL));
                     break;
                 case ATTRIBUTE_TYPE_STRING:
                     if (strcmp(attribute_names[i], "permissions") == 0)
@@ -942,7 +966,7 @@ bool ewsfs_fact_validate_attributes(cJSON* item) {
             const char* attribute_name = attribute_names[i];
             cJSON_bool is_correct_type = false;
             switch (attribute_types[i]) {
-                case ATTRIBUTE_TYPE_NUMBER:
+                case ATTRIBUTE_TYPE_TIME:
                     is_correct_type = cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(attributes, attribute_name));
                     break;
                 case ATTRIBUTE_TYPE_STRING:
