@@ -10,6 +10,14 @@
 
 The **E**soteric, **W**orking and **S**olid **F**ile **S**ystem
 
-## Building
+## Setup
 
-1. GLHF
+```console
+$ git clone https://github.com/gstaaij/ewsfs
+$ cd ewsfs
+$ gcc -o nob nob.c
+$ mkdir build
+$ truncate -s 2560008 build/fs.img
+$ ./mkfs.ewsfs build/fs.img
+$ ./nob mount build/fs.img
+```
