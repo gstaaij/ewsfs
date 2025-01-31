@@ -11,7 +11,7 @@ def print_usage(program: str):
     print(f"    --block-size=<n>    Set the block size to n bytes")
 
 def main(argv) -> int:
-    print("mkfs.ewsfs 1.0.0-dev")
+    print("mkfs.ewsfs 1.0.0")
     print("https://github.com/gstaaij/ewsfs")
     print()
 
