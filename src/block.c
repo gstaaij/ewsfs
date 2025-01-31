@@ -1,8 +1,10 @@
-#include <sys/stat.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <sys/stat.h>
 #define NOB_STRIP_PREFIX
 #include "nob.h"
 #include "block.h"
+#include "log.h"
 
 #define BLOCK_SIZE_RESERVED_BYTES 8
 
@@ -92,6 +94,7 @@ bool ewsfs_block_get_next_free_index(ewsfs_block_index_list_t* used_block_indexe
 
     if (index >= ewsfs_block_count)
         return false;
+    ewsfs_log("[BLOCK] Allocated new block %"PRIu64, index);
     // Set the next_free_index output value
     *next_free_index = index;
     // Add this block to the list of used blocks

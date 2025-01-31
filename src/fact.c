@@ -1,5 +1,4 @@
 #include <inttypes.h>
-#include <stdarg.h>
 #include <string.h>
 #include <time.h>
 #include "fact.h"
@@ -7,54 +6,7 @@
 #define NOB_STRIP_PREFIX
 #include "nob.h"
 
-#ifdef EWSFS_LOG
-#include <stdarg.h>
-
-typedef struct {
-    String_Builder* items;
-    size_t count;
-    size_t capacity;
-} ewsfs_log_t;
-
-static ewsfs_log_t ewsfs_log_list;
-
-#define EWSFS_LOG_MAX_LINES 40
-#define EWSFS_LOG_MAX_LINE_LEN 1024
-#define EWSFS_LOG_FILE_NAME "ewsfs.log"
-
-static void ewsfs_log(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    char buffer[EWSFS_LOG_MAX_LINE_LEN];
-    vsnprintf(buffer, EWSFS_LOG_MAX_LINE_LEN, fmt, args);
-    va_end(args);
-
-    // Reduce the length of the log list until it's less than EWSFS_LOG_MAX_LINES lines
-    while (ewsfs_log_list.count >= EWSFS_LOG_MAX_LINES) {
-        da_free(ewsfs_log_list.items[0]);
-        for (size_t i = 1; i < ewsfs_log_list.count; ++i) {
-            ewsfs_log_list.items[i - 1] = ewsfs_log_list.items[i];
-        }
-        --ewsfs_log_list.count;
-    }
-
-    // Add the new line to the log list
-    String_Builder new_line = {0};
-    sb_append_cstr(&new_line, buffer);
-    da_append(&ewsfs_log_list, new_line);
-}
-
-static off_t ewsfs_log_size() {
-    off_t size = 0;
-    for (size_t i = 0; i < ewsfs_log_list.count; ++i)
-        size += ewsfs_log_list.items[i].count + 1;
-    return size;
-}
-#else // EWSFS_LOG
-static void ewsfs_log(const char* fmt, ...) {
-    (void) fmt;
-}
-#endif // EWSFS_LOG
+#include "log.c"
 
 #define FACT_END_ADDRESS_SIZE 8
 
@@ -78,13 +30,13 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
 
         // Get the next block index
         current_block_index = 0;
-        for (int i = 0; i < FACT_END_ADDRESS_SIZE*8; ++i) {
+        for (int i = 0; i < FACT_END_ADDRESS_SIZE; ++i) {
             int buffer_index = EWSFS_BLOCK_SIZE - i - 1;
-            current_block_index |= temp_buffer[buffer_index] << i;
+            current_block_index |= temp_buffer[buffer_index] << i*8;
         }
 
         // We need to trim off at least the address at the end of the block
-        int end_trim = FACT_END_ADDRESS_SIZE*8;
+        int end_trim = FACT_END_ADDRESS_SIZE;
         // If this is the last FACT block, trim off the trailing zeroes as well
         if (current_block_index == 0) {
             int i = EWSFS_BLOCK_SIZE - end_trim - 1;
@@ -103,7 +55,7 @@ bool ewsfs_fact_read_from_image(FILE* file, ewsfs_fact_buffer_t* buffer) {
 
 // Always call this function AFTER reading the FACT at least once
 bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
-    uint64_t fact_size_per_block = EWSFS_BLOCK_SIZE - FACT_END_ADDRESS_SIZE*8;
+    uint64_t fact_size_per_block = EWSFS_BLOCK_SIZE - FACT_END_ADDRESS_SIZE;
     double amount_of_blocks_double = buffer.count / (double) fact_size_per_block;
     // Ceil the amount_of_blocks_double value
     size_t amount_of_blocks = amount_of_blocks_double > (size_t) amount_of_blocks_double ? (size_t) amount_of_blocks_double + 1 : (size_t) amount_of_blocks_double;
@@ -135,9 +87,9 @@ bool ewsfs_fact_write_to_image(FILE* file, const ewsfs_fact_buffer_t buffer) {
         // If this is not the last block, we'll also need to insert the block index at the end of current_block
         if (!is_last_block) {
             uint64_t next_block_index = fact_block_indexes.items[i + 1];
-            for (int j = 0; j < FACT_END_ADDRESS_SIZE*8; ++j) {
+            for (int j = 0; j < FACT_END_ADDRESS_SIZE; ++j) {
                 int buffer_index = EWSFS_BLOCK_SIZE - j - 1;
-                current_block[buffer_index] = (uint8_t) (next_block_index >> j);
+                current_block[buffer_index] = (uint8_t) ((next_block_index >> j*8) & 0xff);
             }
         }
 
@@ -1196,6 +1148,10 @@ int ewsfs_file_release(struct fuse_file_info* fi) {
 
 
 bool ewsfs_fact_init(FILE* file) {
+    ewsfs_log("[BLOCK] Reset used blocks");
+    fact_block_indexes.count = 0;
+    used_block_indexes.count = 0;
+
     fact_file_buffer.count = 0;
     ewsfs_fact_read_from_image(file, &fact_file_buffer);
 
@@ -1236,9 +1192,6 @@ void ewsfs_fact_uninit() {
 }
 
 bool ewsfs_fact_validate(cJSON* root) {
-    fact_block_indexes.count = 0;
-    used_block_indexes.count = 0;
-
     cJSON* fs_info = cJSON_GetObjectItemCaseSensitive(root, "filesystem_info");
     if (!cJSON_IsObject(fs_info) ||
         !cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(fs_info, "size"))) {
