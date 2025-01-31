@@ -6,10 +6,15 @@ import math
 def print_usage(program: str):
     print(f"Usage: {program} filename [flags]")
     print(f"Available flags:")
-    print(f"    --debug     Use debug FACT")
-    print(f"    --no-quick  Don't do a quick format, set all bytes to zero")
+    print(f"    --debug             Use debug FACT")
+    print(f"    --no-quick          Don't do a quick format, set all bytes to zero")
+    print(f"    --block-size=<n>    Set the block size to n bytes")
 
 def main(argv) -> int:
+    print("mkfs.ewsfs 1.0.0-dev")
+    print("https://github.com/gstaaij/ewsfs")
+    print()
+
     program: str = argv.pop(0)
     if len(argv) < 1:
         print_usage(program)
@@ -28,39 +33,51 @@ def main(argv) -> int:
     finally:
         os.close(fd)
 
-    fs_size_blocks = math.floor(file_size / 4096)
-    fs_size = fs_size_blocks * 4096 + 8
-    if fs_size > file_size:
-        fs_size_blocks -= 1
-        fs_size = fs_size_blocks * 4096 + 8
-    if fs_size_blocks < 2:
-        print(f"ERROR: Size of {filename} needs to be at least {2 * 4096 + 8} bytes; it is {file_size} bytes")
-        return 2
-    
     add_debug_tree = False
     quick_format = True
+    block_size = 4096
     while len(argv) > 0:
         flag = argv.pop(0)
         if flag == "--debug":
             add_debug_tree = True
         elif flag == "--no-quick":
             quick_format = False
+        elif flag.startswith("--block-size="):
+            try:
+                block_size = int(flag[len("--block-size="):])
+            except ValueError:
+                print_usage(program)
+                print(f"ERROR: {flag[len("--block-size="):]} is not a valid whole number")
+                return 4
+            if (block_size < 256):
+                print(f"ERROR: Block size should be at least 256")
+                return 5
         else:
             print_usage(program)
             print(f"ERROR: Unknown flag {flag}.")
             return 3
+
+    fs_size_blocks = math.floor(file_size / block_size)
+    fs_size = fs_size_blocks * block_size + 8
+    if fs_size > file_size:
+        fs_size_blocks -= 1
+        fs_size = fs_size_blocks * block_size + 8
+    if fs_size_blocks < 2:
+        print(f"ERROR: Size of {filename} needs to be at least {2 * block_size + 8} bytes; it is {file_size} bytes")
+        return 2
     
     with open(filename, "rb+") as f:
         # Write the block size at the very beginning (64-bit)
-        f.write(b"\x00\x00\x00\x00\x00\x00\x10\x00")
+        for i in reversed(range(8)):
+            f.write(chr((block_size >> i*8) & 0xff).encode())
         f.write(b'{"filesystem_info":{"size":'+str(fs_size).encode()+b'},"contents":[')
         if (add_debug_tree):
-            f.write(b'{"name": "dir","is_dir": true,"contents": [{"name": "file.txt","is_dir": false,"file_size": 0,"attributes": {"date_created": 1719480000,"date_modified": 1719480000,"date_accessed": 1719480000, "permissions": "644"},"allocation": []}]}')
+            f.write(b'{"name": "dir","is_dir": true,"contents": [{"name": "file.txt","is_dir": false,"file_size": 0,"allocation": []}]}')
         f.write(b']}')
-        f.write(bytes((4096 + 8) - f.tell()))
+        f.write(bytes((block_size + 8) - f.tell()))
         if not quick_format:
             for _ in range(1, fs_size_blocks):
-                f.write(bytes(4096))
+                f.write(bytes(block_size))
 
     return 0
 
