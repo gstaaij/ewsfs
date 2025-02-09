@@ -8,7 +8,7 @@
 ![GitHub top language](https://img.shields.io/github/languages/top/gstaaij/ewsfs)
 ![GitHub last commit](https://img.shields.io/github/last-commit/gstaaij/ewsfs)
 
-The **E**soteric, **W**orking and **S**olid **F**ile **S**ystem
+The [**E**soteric](https://en.wiktionary.org/wiki/esoteric_programming_language#English), **W**orking and **S**olid **F**ile **S**ystem
 
 ## Setup
 
